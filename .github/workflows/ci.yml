@@ -28,13 +28,15 @@ env:
 
 jobs:
   # ── 必选 1：多版本 × 多 OS 测试矩阵 ────────────────────────────────
+  # 跨平台复刻 spz2glb release.yml（windows/ubuntu/macos）：macOS 双架构
+  # macos-15（Apple Silicon ARM64）+ macos-15-intel（x64），全矩阵 4 OS × 6 py = 24 job
   test:
     name: test (py${{ matrix.python }}, ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-15, macos-15-intel]
         python: ["3.9", "3.10", "3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.2.2
@@ -80,6 +82,101 @@ jobs:
           bashpy-migrate analyze --script /tmp/sample.sh
           bashpy-migrate audit --script /tmp/sample.sh --entry cmd_main --write-fns "_write_state"
 
+  # ── 必选 4：调试 JSON 报告（复刻 spz2glb test-wasm-build wasm_hash_report.json 模式）──
+  # 结构化报告下载即看（每用例耗时/结果 + 环境 + CLI 冒烟输出），无需翻 Actions 页面逐条查日志。
+  report:
+    name: report (debug JSON)
+    needs: [test, quality]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: pip install -e .
+      - name: Run pytest with junit
+        run: pytest tests -q --junitxml=report.xml
+      - name: Generate structured test-report.json
+        run: |
+          python - <<'PY'
+          import json, platform, time, xml.etree.ElementTree as ET
+          tree = ET.parse("report.xml")
+          suite = tree.getroot()
+          # pytest junit：聚合属性在 <testsuite> 子元素（根是 <testsuites>，无统计属性）
+          ts = next(suite.iter("testsuite"), suite)
+          cases = []
+          for tc in suite.iter("testcase"):
+              cases.append({
+                  "name": tc.get("classname") + "." + tc.get("name"),
+                  "time": float(tc.get("time", 0)),
+                  "status": ("failed" if tc.find("failure") is not None
+                             else "skipped" if tc.find("skipped") is not None else "passed"),
+              })
+          report = {
+              "generatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+              "python": platform.python_version(),
+              "platform": platform.platform(),
+              "summary": {
+                  "tests": int(ts.get("tests", 0)),
+                  "failures": int(ts.get("failures", 0)),
+                  "errors": int(ts.get("errors", 0)),
+                  "skipped": int(ts.get("skipped", 0)),
+                  "time": float(ts.get("time", 0)),
+              },
+              "testcases": cases,
+          }
+          json.dump(report, open("test-report.json", "w", encoding="utf-8"),
+                    indent=2, ensure_ascii=False)
+          print(f"test-report.json: {len(cases)} cases, summary={report['summary']}")
+          PY
+      - name: CLI smoke → cli-report.json
+        run: |
+          cat > /tmp/sample.sh <<'EOF'
+          _parent() {
+            local x=1
+            _child
+          }
+          _child() { echo "$x"; }
+          _write_state() { echo "s" > state.json; }
+          cmd_main() {
+            if [ -n "$DRY_RUN" ]; then echo skip; else _write_state; fi
+          }
+          EOF
+          bashpy-migrate --version > cli-version.txt
+          set +e
+          bashpy-migrate analyze --script /tmp/sample.sh > cli-analyze.txt 2>&1; A_RC=$?
+          bashpy-migrate audit --script /tmp/sample.sh --entry cmd_main --write-fns "_write_state" > cli-audit.txt 2>&1; U_RC=$?
+          set -e
+          export A_RC U_RC
+          python - <<'PY'
+          import json, os
+          def _read(p):
+              try:
+                  return open(p, encoding="utf-8").read()
+              except OSError:
+                  return None
+          blob = {
+              "cliVersion": _read("cli-version.txt").strip() if _read("cli-version.txt") else None,
+              "analyze": {"exit": int(os.environ.get("A_RC", "-1")), "output": _read("cli-analyze.txt")},
+              "audit": {"exit": int(os.environ.get("U_RC", "-1")), "output": _read("cli-audit.txt")},
+          }
+          json.dump(blob, open("cli-report.json", "w", encoding="utf-8"),
+                    indent=2, ensure_ascii=False)
+          print(f"cli-report.json written (analyze rc={blob['analyze']['exit']}, audit rc={blob['audit']['exit']})")
+          PY
+      - name: Upload debug reports
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: debug-reports
+          path: |
+            test-report.json
+            report.xml
+            cli-report.json
+          retention-days: 7
+
   # ── 必选 3：脚本安全审计 ───────────────────────────────────────────
   security-audit:
     name: security-audit (actionlint + T1059)
@@ -95,9 +192,13 @@ jobs:
           ./actionlint -color
       - name: zizmor (workflow supply chain)
         # 对齐门卫 ci.yml security-audit：workflow 是 CI/CD 的源代码，供应链扫描非阻塞 = 无防御
+        # 在线模式（--gh-token）：走 GitHub API 做深度审计（impostor-commit 等 action 引用校验），
+        # 令牌只需只读（permissions: contents: read）；auto-fix（zizmor --fix）仅本地开发用，CI 是纯门禁不自动改文件。
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           pip install zizmor
-          zizmor --format plain --min-severity medium .github/workflows/
+          zizmor --gh-token "$GH_TOKEN" --format plain --min-severity medium .github/workflows/
       - name: Dangerous command static scan (D-class T1059)
         run: |
           # 方案 A（零依赖，主防线）：危险命令模式 grep，命中即 FAIL
