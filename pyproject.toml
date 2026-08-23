@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "zthl-bashpy-migrate"
+version = "0.1.0"
+description = "Deterministic bash → Python migration verification engine (analyze / verify / audit)"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MulanPSL-2.0" }
+authors = [{ name = "pjh3955" }]
+keywords = ["bash", "python", "migration", "semantic-equivalence", "refactoring", "zthl"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Mulan Permissive Software License v2 (MulanPSL-2.0)",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Code Generators",
+]
+
+[project.scripts]
+bashpy-migrate = "zthl_bashpy_migrate.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["zthl_bashpy_migrate*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

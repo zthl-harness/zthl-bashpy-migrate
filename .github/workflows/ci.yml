@@ -1,0 +1,123 @@
+# CI — zthl-bashpy-migrate（纯 Python 项目，完整模板裁剪自 spz-gatekeeper ci-pipeline-template）
+# 原则：workflow 是 CI/CD 的源代码——每次改动必须过 actionlint + zizmor。
+name: CI
+run-name: CI - ${{ github.ref_name }}
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'zthl_bashpy_migrate/**'
+      - 'tests/**'
+      - '.github/workflows/*.yml'
+      - 'pyproject.toml'
+  pull_request:
+    paths:
+      - 'zthl_bashpy_migrate/**'
+      - 'tests/**'
+      - '.github/workflows/*.yml'
+      - 'pyproject.toml'
+
+env:
+  ACTIONLINT_VERSION: "1.7.7"
+
+jobs:
+  # ── 必选 1：多版本 × 多 OS 测试矩阵 ────────────────────────────────
+  test:
+    name: test (py${{ matrix.python }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.2.2
+      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+      - name: Install
+        run: pip install -e . pytest
+      - name: Run pytest
+        run: pytest tests -q
+
+  # ── 必选 2：CLI 冒烟 + 发布就绪（验证入口真实可用，非只跑 pytest）──
+  quality:
+    name: quality (CLI smoke)
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.2.2
+      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: pip install -e .
+      - name: CLI smoke (analyze + audit on real sample)
+        run: |
+          bashpy-migrate --version
+          cat > /tmp/sample.sh <<'EOF'
+          _parent() {
+            local x=1
+            _child
+          }
+          _child() { echo "$x"; }
+          _write_state() { echo "s" > state.json; }
+          cmd_main() {
+            if [ -n "$DRY_RUN" ]; then echo skip; else _write_state; fi
+          }
+          EOF
+          bashpy-migrate analyze --script /tmp/sample.sh
+          bashpy-migrate audit --script /tmp/sample.sh --entry cmd_main --write-fns "_write_state"
+
+  # ── 必选 3：脚本安全审计 ───────────────────────────────────────────
+  security-audit:
+    name: security-audit (actionlint + T1059)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.2.2
+        with:
+          fetch-depth: 1
+      - name: actionlint
+        run: |
+          curl -sSfL "https://raw.githubusercontent.com/rhysd/actionlint/v${ACTIONLINT_VERSION}/scripts/download-actionlint.bash" | bash
+          ./actionlint -color
+      - name: zizmor (workflow supply chain)
+        # 对齐门卫 ci.yml security-audit：workflow 是 CI/CD 的源代码，供应链扫描非阻塞 = 无防御
+        run: |
+          pip install zizmor
+          zizmor --format plain --min-severity medium .github/workflows/
+      - name: Dangerous command static scan (D-class T1059)
+        run: |
+          # 方案 A（零依赖，主防线）：危险命令模式 grep，命中即 FAIL
+          #   rm -rf 家族 / git push --force / git reset --hard / git clean -f
+          if grep -rnE '\brm[[:space:]]+-r[f]?\b|git push --force|git reset --hard|git clean -[fd]' \
+              --include='*.sh' --include='*.bash' . ; then
+            echo "::error::dangerous command found in shell script (D 类 T1059)"
+            exit 1
+          fi
+
+  # ── 可选：跨平台编码防御（纯 Python 项目只需 L1/L2）───────────────
+  encoding-defense:
+    name: encoding-defense (L1 BOM / L2 CRLF)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.2.2
+      - name: L2 CRLF check
+        run: |
+          if grep -rIl $'\r' --include='*.py' --include='*.toml' --include='*.yml' --include='*.yaml' . ; then
+            echo "::error::CRLF found in source files (L2)"
+            exit 1
+          fi
+      - name: L1 UTF-8 BOM check
+        run: |
+          if grep -rIl $'^\xEF\xBB\xBF' --include='*.py' . ; then
+            echo "::error::UTF-8 BOM found (L1)"
+            exit 1
+          fi

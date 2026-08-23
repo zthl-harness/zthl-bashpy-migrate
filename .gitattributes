@@ -1,0 +1,8 @@
+# Encoding defense (L4): force LF — CI encoding-defense L2/L1 依赖
+* text=auto
+*.py text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.toml text eol=lf
+*.sh text eol=lf
+*.md text eol=lf
