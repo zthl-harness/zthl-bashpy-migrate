@@ -28,15 +28,16 @@ env:
 
 jobs:
   # ── 必选 1：多版本 × 多 OS 测试矩阵 ────────────────────────────────
-  # 跨平台复刻 spz2glb release.yml（windows/ubuntu/macos）：macOS 双架构
-  # macos-15（Apple Silicon ARM64）+ macos-15-intel（x64），全矩阵 4 OS × 6 py = 24 job
+  # 跨平台复刻 spz2glb release.yml（windows/ubuntu/macos）：2 个标准 macOS runner
+  # macos-latest（= macOS 15）+ macos-14（macos-15/macos-15-intel 不在可用标签；
+  # 显式 15 系仅付费 xlarge/large/xl）。全矩阵 4 OS × 6 py = 24 job
   test:
     name: test (py${{ matrix.python }}, ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-15, macos-15-intel]
+        os: [ubuntu-latest, windows-latest, macos-latest, macos-14]
         python: ["3.9", "3.10", "3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.2.2
