@@ -1,3 +1,8 @@
+# Copyright (c) 2026 Pu Junhan
+# SPDX-License-Identifier: MulanPSL-2.0
+# Project: ZTHL-Harness
+# Repository: https://github.com/zthl-harness/zthl-bashpy-migrate
+
 """probe.py — syntax preflight for bash and Python sources.
 
 2026-08-23 lesson (gatekeeper Phase 7): bash -n with a Windows path arg fails

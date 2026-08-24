@@ -1,3 +1,8 @@
+# Copyright (c) 2026 Pu Junhan
+# SPDX-License-Identifier: MulanPSL-2.0
+# Project: ZTHL-Harness
+# Repository: https://github.com/zthl-harness/zthl-bashpy-migrate
+
 """verify.py — L2: semantic-equivalence verification (deterministic, 0 API).
 
 Core idea (Phase 7f 收敛设计, 2026-08-23):

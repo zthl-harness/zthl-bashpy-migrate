@@ -1,3 +1,8 @@
+# Copyright (c) 2026 Pu Junhan
+# SPDX-License-Identifier: MulanPSL-2.0
+# Project: ZTHL-Harness
+# Repository: https://github.com/zthl-harness/zthl-bashpy-migrate
+
 """analyze.py — L1: bash function structure, dependency graph, side effects.
 
 Deterministic, 0 API. Heuristics are conservative: they flag *candidates* for

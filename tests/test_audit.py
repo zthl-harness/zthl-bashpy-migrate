@@ -1,3 +1,8 @@
+# Copyright (c) 2026 Pu Junhan
+# SPDX-License-Identifier: MulanPSL-2.0
+# Project: ZTHL-Harness
+# Repository: https://github.com/zthl-harness/zthl-bashpy-migrate
+
 """L3 audit tests: dead code / write guard (bash+python) / bomb scan / LLM degrade."""
 from zthl_bashpy_migrate.audit import bomb_scan, dead_code, llm_explain, write_guard_check
 

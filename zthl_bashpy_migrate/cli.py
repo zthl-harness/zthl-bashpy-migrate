@@ -1,3 +1,8 @@
+# Copyright (c) 2026 Pu Junhan
+# SPDX-License-Identifier: MulanPSL-2.0
+# Project: ZTHL-Harness
+# Repository: https://github.com/zthl-harness/zthl-bashpy-migrate
+
 """cli.py — bashpy-migrate command line entry.
 
 Subcommands:

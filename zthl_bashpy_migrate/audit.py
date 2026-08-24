@@ -1,3 +1,8 @@
+# Copyright (c) 2026 Pu Junhan
+# SPDX-License-Identifier: MulanPSL-2.0
+# Project: ZTHL-Harness
+# Repository: https://github.com/zthl-harness/zthl-bashpy-migrate
+
 """audit.py — L3: dead-code triage + write-guard audit + optional LLM fallback.
 
 Deterministic core (0 API); LLM is an optional explainer and NEVER gates a
