@@ -16,6 +16,15 @@ Changes since 初始提交 (`242eb35`)。首个发布版本，tag `v0.1.0`。
 
 ### CI 供应链加固
 
+- **打 tag 版本更新日志机制** (`0e7d872`): 复刻 spz2glb 发布模式——`CHANGELOG.md` 结构化版本日志 +
+  `scripts/changelog-check.sh` 覆盖门禁（tag 前验证自上一 tag 的每个 commit 都被 CHANGELOG 覆盖，
+  squash PR 按 `(#N)` 匹配、直接 commit 回退关键词、`docs:` 自文档豁免）+
+  `.github/workflows/release.yml`（tag `v*` → gate → 构建 wheel/sdist → `action-gh-release` 自动生成 release notes）。
+  首个 tag `v0.1.0` 已发布。
+- **release.yml 权限最小化 + action pin 修正** (`release.yml`): zizmor 在线拦截
+  `excessive-permissions`（全局 `contents: write` 过宽，改为仅 release job 授权）+
+  两处 `ref-version-mismatch`——`download-artifact@v5` 实为 `634f93cb`（门卫也带同错注释）、
+  `action-gh-release@v3.0.2` 是 annotated tag，pin 必须用 peeled commit `3d0d9888`。
 - **zizmor workflow 供应链审计** (`3b9cd7d` / `73b0ad9`): 首次 CI 即拦截 `artipacked`
   （checkout 缺 `persist-credentials: false`，4 处修复）；升级在线模式（`--gh-token`）后拦截
   `ref-version-mismatch`——checkout pin `0ad4b8fa` 注释写 v4.2.2 但实为 v4.1.4，
