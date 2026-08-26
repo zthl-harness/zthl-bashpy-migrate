@@ -43,8 +43,11 @@ L2 verify（0 API，确定性，核心）
     + dry_run 零副作用检查（--check 前后 state hash 比对）
 
 L3 audit（LLM 兜底可选）
-    死代码三关（函数定义 → 调用引用 → 生产入口扫描）
+    死代码三关（bash 函数可达性 + Python 模块级未使用 import/函数，AST）
     + 写入路径守卫审查（AST 扫 *_write* 无 dry_run 守卫）
+    + 炸弹扫描：python3 内联 / stderr 吞错 / 危险命令 / 大小写敏感耦合
+      （zizmor 模式：检测 → 分级 → 修复——每条 finding 带 severity + risk + fix）
+    + shellcheck TOP 子集（SC2086/SC2164/SC2181/SC2034 确定性移植——零外部依赖）
     + 未覆盖隐式语义点 → LLM 解释（无 key 时降级输出"待人工审查"清单）
 ```
 
@@ -91,8 +94,10 @@ bashpy-migrate audit --script gatekeeper-cli.sh --entry main --write-fns "_state
 | L2 verify | 契约改进白名单：登记项永不阻塞 | whitelist 测试 |
 | L3 audit | 死代码三关：已知死代码样本 100% 检出 | `pytest tests/test_audit.py` |
 | L3 audit | 写入守卫：无守卫写入 100% 检出，有守卫 0 误报 | fixture 断言 |
+| L3 audit | 炸弹扫描 + shellcheck TOP 子集 + 大小写敏感：确定性检出，每条 finding 带 severity+risk+fix（zizmor 模式） | `bomb_scan` / `shellcheck_scan` 测试 |
+| L3 audit | Python 模块级死代码：AST 未使用 import/函数（零依赖，无 vulture/pyflakes） | `python_module_deadcode` 测试 |
 | L3 audit | LLM 兜底降级：无 key → "待人工审查"清单模式 | `llm_explain` 测试 |
-| 跨层 | pytest ≥19 通过；真实 bash 样本 CLI smoke（analyze + audit）0 错误 | `pytest tests -q` + CI quality job |
+| 跨层 | pytest ≥28 通过；真实 bash 样本 CLI smoke（analyze + audit）0 错误 | `pytest tests -q` + CI quality job |
 | 跨层 | Python 3.9-3.13 × ubuntu/windows 矩阵全绿 | GitHub Actions `test` job |
 
 某层改动只有其对应行在 CI 变绿才算完成——对齐 batch8 规则
@@ -101,3 +106,5 @@ bashpy-migrate audit --script gatekeeper-cli.sh --entry main --write-fns "_state
 ## 许可证
 
 [MulanPSL-2.0](https://license.coscl.org.cn/MulanPSL2)
+
+Copyright (c) 2026 Pu Junhan

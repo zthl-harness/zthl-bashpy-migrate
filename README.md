@@ -49,8 +49,11 @@ L2 verify (0 API, deterministic, core)
     + dry_run zero-side-effect check (state hash before/after --check)
 
 L3 audit (LLM fallback optional)
-    dead-code three gates (function definition → call references → production entry-point scan)
+    dead-code three gates (bash function reachability + Python module-level unused imports/functions, AST)
     + write-path guard audit (AST scan for *_write* without dry_run guard)
+    + bomb scan: inline-python / stderr-swallow / dangerous-command / case-sensitive coupling
+      (zizmor-style: detect → grade → fix — every finding carries severity + risk + fix recipe)
+    + shellcheck TOP subset (SC2086/SC2164/SC2181/SC2034 deterministic port — zero external dependency)
     + uncovered implicit-semantics points → LLM explanation (degraded to "needs manual review" list without key)
 ```
 
@@ -98,8 +101,10 @@ Phase 7 acceptance style: "all transitions correct + 100% semantic equivalence")
 | L2 verify | Contract-improvement whitelist: registered items never block | whitelist test |
 | L3 audit | Dead-code three gates: 100% detection on known dead-code samples | `pytest tests/test_audit.py` |
 | L3 audit | Write-guard: 100% detection of unguarded writes, 0 false positives on guarded | fixture assertions |
+| L3 audit | Bomb scan + shellcheck TOP subset + case-sensitivity: deterministic findings, every one with severity+risk+fix (zizmor 模式) | `bomb_scan` / `shellcheck_scan` tests |
+| L3 audit | Python module-level deadcode: unused imports/functions via AST (zero-dep, no vulture/pyflakes) | `python_module_deadcode` test |
 | L3 audit | LLM fallback degraded mode (no key → "needs manual review" list) | `llm_explain` test |
-| Cross-layer | `pytest` ≥ 19 passed; CLI smoke on real bash sample (analyze + audit) 0 errors | `pytest tests -q` + CI quality job |
+| Cross-layer | `pytest` ≥ 28 passed; CLI smoke on real bash sample (analyze + audit) 0 errors | `pytest tests -q` + CI quality job |
 | Cross-layer | Python 3.9-3.13 × ubuntu/windows matrix green | GitHub Actions `test` job |
 
 A layer change is only "done" when its row above is green in CI — mirroring the batch8 rule
@@ -108,3 +113,5 @@ A layer change is only "done" when its row above is green in CI — mirroring th
 ## License
 
 [MulanPSL-2.0](https://license.coscl.org.cn/MulanPSL2)
+
+Copyright (c) 2026 Pu Junhan
