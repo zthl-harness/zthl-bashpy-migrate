@@ -209,6 +209,222 @@ def bomb_scan(source: str) -> Dict[str, object]:
     return {"counts": counts, "total": sum(counts.values()), "groups": groups}
 
 
+# ─── shellcheck TOP 规则原生移植（2026-08-26，zizmor 式自包含）───
+# 对齐 gatekeeper L3.5 dead_code_gate1 + l5_blind_spot 的确定性实现：
+# 替代外部 shellcheck binary 依赖（外部 shellcheck 降级为可选增强，未装不参与门禁）。
+# 子集 = 迁移场景 TOP 4：sc2164（cd 失败无处理）/ sc2181（$? 反模式）/
+#         sc2086（裸变量展开）/ sc2034（未使用变量，常量契约豁免）。
+# (kind, pattern, severity, risk, fix) — 单行级可确定性判定的规则走正则表；
+# 需要引号状态/全文件作用域的（sc2086/sc2034）走专用函数。
+
+_SC_SINGLE_RULES = [
+    ("sc2164_cd_fail", r"^\s*cd\s+\S+\s*$",
+     "LOW", "SC2164 — cd 失败无错误处理，后续命令在错误目录执行",
+     "cd \"$dir\" || { echo \"cd failed: $dir\" >&2; return 1; }"),
+    ("sc2181_test_dollar", r"\[[^]]*\$\?[^]]*\]",
+     "LOW", "SC2181 — 用 $? 反模式测试命令结果（掩盖真实退出码来源，易受中间命令干扰）",
+     "直接 if cmd; then 判断，或 command || handle_failure；勿写 if [ $? -ne 0 ]"),
+]
+
+# sc2034 豁免：全大写/下划线开头 = 常量/契约；META_ 前缀 = 文档契约（死代码教训 R5.5：
+# case 分支变量与 constants 区是初始化默认值/输出契约，不是死代码，禁止报）
+_SC_2034_EXEMPT = re.compile(r"^(?:[A-Z_][A-Z0-9_]*|META_[a-zA-Z0-9_]*)$")
+_SC_2034_DEF = re.compile(
+    r"^\s*(?:local\s+|readonly\s+|declare\s+-[a-zA-Z]*\s+)?([a-zA-Z_][a-zA-Z0-9_]*)\s*=")
+
+
+def _skip_cmd_subst(line: str, j: int, n: int) -> int:
+    """跳过 `$(` 命令替换直到匹配 `)`（独立引号上下文，嵌套 `$(` 计数）。
+    命令替换内的引号不影响外层引号状态（`"$(basename "$b")"` 的内层 `"` 不得关闭外层）。"""
+    depth = 1
+    s = d = False
+    j += 2  # 跳过 $(
+    while j < n:
+        c = line[j]
+        if c == "'" and not d:
+            s = not s
+        elif c == '"' and not s:
+            d = not d
+        elif c == "\\" and not s:
+            j += 1
+        elif not s and not d:
+            if c == "(" and j > 0 and line[j - 1] == "$":
+                depth += 1
+            elif c == ")":
+                depth -= 1
+                if depth == 0:
+                    return j + 1
+        j += 1
+    return n
+
+
+def _sc2086_unquoted_issues(lines: List[str]) -> List[Dict[str, object]]:
+    """SC2086 — 裸变量展开。行级引号状态扫描：`$var` 不在引号内/花括号/命令替换内 → 命中。
+    `$@`/`$1`/`$((...))` 天然不匹配（`[A-Za-z_]` 不接 `(`/数字）。
+    保守：花括号 `${var}` 场景漏报（避免 `${var,,}` 误报，大小写另有 case_sensitive 规则）。"""
+    issues = []
+    for i, line in enumerate(lines, 1):
+        if line.lstrip().startswith("#"):
+            continue
+        j, n = 0, len(line)
+        in_s = in_d = False
+        while j < n:
+            c = line[j]
+            if c == "'" and not in_d:
+                in_s = not in_s
+                j += 1
+                continue
+            if c == '"' and not in_s:
+                in_d = not in_d
+                j += 1
+                continue
+            if c == "\\":  # 转义（含 \$, \", \'）跳过下一字符
+                j += 2
+                continue
+            if c == "$":
+                nxt = line[j + 1] if j + 1 < n else ""
+                if nxt == "(" and not in_s:
+                    # $(...) 命令替换 — 独立引号上下文整体跳过（双引号内的 $() 同样跳过）
+                    j = _skip_cmd_subst(line, j, n)
+                    continue
+                if not in_s and not in_d:
+                    if nxt == "{":  # ${...} 参数展开 — 保守跳过整块
+                        close = line.find("}", j + 2)
+                        j = (close + 1) if close != -1 else n
+                        continue
+                    m = re.match(r"[A-Za-z_][A-Za-z0-9_]*", line[j + 1:])
+                    if m:
+                        issues.append({"line": i, "col": j + 1, "var": m.group(0),
+                                       "text": line.strip()[:120],
+                                       "fix": "加双引号 \"${var}\"，或确认词分割是有意为之"})
+                        j += 1 + len(m.group(0))
+                        continue
+            j += 1
+    return issues
+
+
+def _sc2034_unused_issues(lines: List[str]) -> List[Dict[str, object]]:
+    """SC2034 — 未使用变量（保守版）。只报小写/驼峰赋值名且过滤后行内引用 ≤ 定义次数。
+    全大写常量/export/readonly 豁免（外部契约）。"""
+    text = "\n".join(lines)
+    defs = []  # [(line_no, name)]
+    for i, line in enumerate(lines, 1):
+        s = line.lstrip()
+        if s.startswith("#"):
+            continue
+        m = _SC_2034_DEF.match(s)
+        if not m:
+            continue
+        name = m.group(1)
+        if _SC_2034_EXEMPT.match(name):
+            continue
+        if "export" in s or "readonly" in s:
+            continue
+        defs.append((i, name))
+    issues = []
+    for i, name in defs:
+        pat = re.compile(r"\$\{" + re.escape(name) + r"\}|\$" + re.escape(name)
+                         + r"\b|\b" + re.escape(name) + r"\s*=")
+        refs = len(pat.findall(text))
+        if refs <= sum(1 for _, n in defs if n == name):
+            issues.append({"line": i, "var": name, "text": lines[i - 1].strip()[:120],
+                           "fix": "删除该变量，或显式声明其为输出契约（如 export/返回值使用）"})
+    return issues
+
+
+def _python_inline_skip(lines: List[str]) -> set:
+    """收集 python 内联行号集合（python3 -c 行 + heredoc 内容区间）。
+
+    bash 语法检测应跳过 python 内容（shellcheck 同理不扫 heredoc/内联 python
+    —— 这是 python 迁移炸弹，归 bomb_scan.inline_python 管，不属于 shellcheck 语义）。
+    覆盖：单行 `python3 -c '...'` / 多行 `python3 -c "` 跨行字符串 / `<<TAG` heredoc 内容。
+    """
+    skip = set()
+    in_heredoc = False
+    heredoc_tag = ""
+    in_py_c = False
+    py_c_quote = ""
+    for i, line in enumerate(lines, 1):
+        if in_heredoc:
+            skip.add(i)
+            if line.strip() == heredoc_tag:
+                in_heredoc = False
+            continue
+        if in_py_c:
+            skip.add(i)
+            # 闭合：行内含未转义 quote 且位于收尾位置（行尾 / ) | > ; && || 后）
+            j = 0
+            while j < len(line):
+                if line[j] == "\\":
+                    j += 2
+                    continue
+                if line[j] == py_c_quote:
+                    rest = line[j + 1:].strip()
+                    if not rest or rest.startswith((")", "|", ">", "2>", ";", "&&", "||")):
+                        in_py_c = False
+                        break
+                j += 1
+            continue
+        if re.search(r"python3?\s+-c\s+[\"']", line):
+            skip.add(i)
+            m = re.search(r"python3?\s+-c\s+([\"'])", line)
+            if m:
+                q = m.group(1)
+                if q not in line[m.end():]:  # 引号未同行闭合 → 多行 -c 字符串
+                    in_py_c = True
+                    py_c_quote = q
+            continue
+        if re.search(r"python3?\s*-\s*<<\s*['\"]?[A-Za-z_][A-Za-z0-9_]*|python3?\s*<<\s*['\"]?[A-Za-z_][A-Za-z0-9_]*", line):
+            skip.add(i)
+            m = re.search(r"<<\s*['\"]?([A-Za-z_][A-Za-z0-9_]*)['\"]?", line)
+            if m:
+                heredoc_tag = m.group(1)
+                in_heredoc = True
+    return skip
+
+
+def shellcheck_scan(source: str) -> Dict[str, object]:
+    """shellcheck TOP 规则原生移植（检测 → 分级 → fix 三件套）。
+
+    输出按 kind 分组的行级清单 + 计数，供 dead_code_gate1 / l5_blind_spot
+    确定性消费。每条 finding 带 severity + risk + fix（zizmor 模式）。
+    python 内联/heredoc 内容跳过（归 bomb_scan.inline_python 管，shellcheck 语义不扫）。
+    """
+    lines = source.splitlines()
+    skip = _python_inline_skip(lines)
+    filtered = [ln for k, ln in enumerate(lines, 1) if k not in skip]
+    groups: Dict[str, List[Dict[str, object]]] = {}
+    for i, line in enumerate(lines, 1):
+        if i in skip or line.lstrip().startswith("#"):
+            continue
+        for kind, pat, sev, risk, fix in _SC_SINGLE_RULES:
+            if re.search(pat, line):
+                groups.setdefault(kind, []).append({
+                    "line": i, "severity": sev, "risk": risk, "fix": fix,
+                    "text": line.strip()[:120]})
+    for item in _sc2086_unquoted_issues(filtered):
+        groups.setdefault("sc2086_unquoted", []).append(
+            {"severity": "LOW", "risk": "SC2086 — 裸变量展开（未引号）→ 词分割/通配符展开意外",
+             **item, "line": _offset_line(skip, item["line"])})
+    for item in _sc2034_unused_issues(filtered):
+        groups.setdefault("sc2034_unused", []).append(
+            {"severity": "LOW", "risk": "SC2034 — 未使用变量（潜在绕过面/死代码）", **item,
+             "line": _offset_line(skip, item["line"])})
+    counts = {k: len(v) for k, v in groups.items()}
+    return {"counts": counts, "total": sum(counts.values()), "groups": groups}
+
+
+def _offset_line(skip: set, relative_line: int) -> int:
+    """把过滤后行号映射回原文件行号（跳过集合按升序）。"""
+    orig = 0
+    count = 0
+    while count < relative_line:
+        orig += 1
+        if orig not in skip:
+            count += 1
+    return orig
+
+
 # ─── LLM 兜底（可选，0 依赖 urllib）───
 
 def llm_explain(items: List[Dict[str, object]], api_key: Optional[str] = None,

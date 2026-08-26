@@ -3,8 +3,10 @@
 # Project: ZTHL-Harness
 # Repository: https://github.com/zthl-harness/zthl-bashpy-migrate
 
-"""L3 audit tests: dead code / write guard (bash+python) / bomb scan / LLM degrade."""
-from zthl_bashpy_migrate.audit import bomb_scan, dead_code, llm_explain, write_guard_check
+"""L3 audit tests: dead code / write guard (bash+python) / bomb scan / shellcheck TOP / LLM degrade."""
+from zthl_bashpy_migrate.audit import (
+    bomb_scan, dead_code, llm_explain, shellcheck_scan, write_guard_check,
+)
 
 
 def test_dead_code_detected(bash_source):
@@ -89,6 +91,55 @@ def test_bomb_scan_every_finding_has_fix():
             assert item["severity"], f"{kind} 缺 severity"
             assert item["risk"], f"{kind} 缺 risk"
             assert item["fix"], f"{kind} 缺 fix: {item}"
+
+
+def test_shellcheck_scan_top_rules():
+    """2026-08-26: shellcheck TOP 子集原生移植 — sc2164/sc2181/sc2086 命中，引号内不误报。"""
+    src = """f() {
+  cd "$HOME"
+  if [ $? -ne 0 ]; then echo fail; fi
+  echo $name
+  echo "$quoted"
+}
+"""
+    r = shellcheck_scan(src)
+    c = r["counts"]
+    assert c["sc2164_cd_fail"] == 1, f"cd 无错误处理应命中: {c}"
+    assert c["sc2181_test_dollar"] == 1, f"$? 反模式应命中: {c}"
+    assert c["sc2086_unquoted"] == 1, f"裸变量应命中: {c}"
+    # 引号内 $quoted 不误报
+    assert "quoted" not in str(r["groups"].get("sc2086_unquoted", []))
+
+
+def test_shellcheck_sc2034_unused_and_const_exempt():
+    """2026-08-26: sc2034 — 孤儿变量报，常量契约豁免（死代码教训 R5.5）。"""
+    src = """_STAGE_READY="true"  # 常量契约豁免
+f() {
+  local orphan="x"
+  echo ok
+}
+"""
+    r = shellcheck_scan(src)
+    c = r["counts"]
+    assert c["sc2034_unused"] == 1, f"孤儿变量应命中: {c}"
+    assert "orphan" in str(r["groups"].get("sc2034_unused", []))
+    # 全大写常量 _STAGE_READY 豁免（case 分支/constants 契约不是死代码）
+    assert "_STAGE_READY" not in str(r["groups"].get("sc2034_unused", []))
+
+
+def test_shellcheck_scan_skips_python_inline():
+    """2026-08-26: python 内联/heredoc 内容不按 bash 扫（归 bomb_scan.inline_python）。"""
+    src = """f() {
+  python3 - <<'PYEOF'
+u=d.get('updated','')
+PYEOF
+  echo $name
+}
+"""
+    r = shellcheck_scan(src)
+    # heredoc python 内容不报 sc2034；bash 行 echo $name 仍报 sc2086
+    assert "u=d.get" not in str(r["groups"].get("sc2034_unused", []))
+    assert r["counts"]["sc2086_unquoted"] == 1, f"bash 裸变量应命中: {r['counts']}"
 
 
 def test_llm_degrade_without_key():

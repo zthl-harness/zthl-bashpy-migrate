@@ -5,3 +5,7 @@ dist/
 build/
 .pytest_cache/
 .venv/
+# IDE / agent 本地配置（不进版本库）
+.claude/
+AGENTS.md
+CLAUDE.md
