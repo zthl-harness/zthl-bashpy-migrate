@@ -158,31 +158,51 @@ def _node_within(container: ast.AST, node: ast.AST) -> bool:
 
 # ─── 炸弹标记（2026-08-23: python3 内联 / stderr 吞错 / 危险命令）───
 # 回应 gatekeeper-cli.sh 实测：238 处 python3 内联 + 538 处 2>/dev/null 全是迁移炸弹。
-# (kind, pattern, severity, risk) — pattern 用字符类拆危险命令字面量（防自身防线拦截）
+# (kind, pattern, severity, risk, fix) — pattern 用字符类拆危险命令字面量（防自身防线拦截）
+# fix = zizmor 式修复建议（2026-08-25: 检测 + 分级 + 修复方法三件套）
 
 _BOMB_PATTERNS = [
     ("inline_python", r"python3?\s+-c\s+[\"']|python3?\s*-\s*<<\s*['\"]?[A-Za-z_][A-Za-z0-9_]*|python3?\s*<<\s*['\"]?[A-Za-z_][A-Za-z0-9_]*",
-     "HIGH", "bash 内嵌 python3 — 转义地狱/不可单测/维护炸弹，候选迁移独立 gk_*.py"),
+     "HIGH", "bash 内嵌 python3 — 转义地狱/不可单测/维护炸弹，候选迁移独立 gk_*.py",
+     "迁移为独立 scripts/gk_*.py（复用 17 脚本模式：函数化 + 带测试 + self-check 门禁）"),
     ("stderr_swallow", r"2>\s*/dev/null",
-     "HIGH", "stderr 丢弃 — 静默失败（heredoc 异常被吞输出空 JSON）"),
+     "HIGH", "stderr 丢弃 — 静默失败（heredoc 异常被吞输出空 JSON）",
+     "关键路径改 2>>\"$GK_DBG_LOG\" 保留错误线索；非关键路径保留但需显式 || echo 兜底"),
     ("fd_redirect", r"2>&1|>&\s*[0-9]|>>\s*&",
-     "LOW", "stderr 重定向到 fd — 掩盖错误去向（非吞错，语义确认）"),
+     "LOW", "stderr 重定向到 fd — 掩盖错误去向（非吞错，语义确认）",
+     "语义确认即可；若掩盖错误去向，改显式落日志（2>>\"$GK_DBG_LOG\"）"),
     ("dangerous_command", r"\brm\s+-r[f]?\b|git push --forc[e]|git reset --har[d]|git clean -[fd]",
-     "HIGH", "危险命令 — 不可逆覆盖（D 类 T1059）"),
+     "HIGH", "危险命令 — 不可逆覆盖（D 类 T1059）",
+     "改用 --force-with-lease / 加 $_tmp 变量形态豁免 + 人工确认（对齐 Gate R0.2 修复建议）"),
+    # 2026-08-25: 大小写敏感字符串比较（业界语法最佳实践，shellcheck 对齐），拆两类：
+    #   1. case_sensitive       — camelCase 字面量（True/False/None）＝ 生成方值耦合（python bool repr）
+    #   2. case_sensitive_const — ALL_CAPS 字面量（APPROVED/环境变量名）＝ 常量/名称，大小写是语义一部分
+    # 两类修复方法不同：值耦合适合 ${var,,} 归一化；名称/常量归一化会破坏比较。
+    ("case_sensitive",
+     r"\"?\$[A-Za-z_][A-Za-z0-9_]*\"?\s*(?:==|=|!=)\s*\"[A-Z][a-z][A-Za-z0-9_]*\"",
+     "LOW", "大小写敏感值比较 — 与生成方字面量强耦合（如 = \"False\" 依赖 python bool repr 大写，上游改小写即静默失效）",
+     "用 [[ \"${var,,}\" = \"literal\" ]] 归一化比较（bash4+），或 case \"$var\" in [Ff]alse) 分支；"
+     "建议生成方统一小写输出（bool 用 0/1 或 true/false）"),
+    ("case_sensitive_const",
+     r"\"?\$[A-Za-z_][A-Za-z0-9_]*\"?\s*(?:==|=|!=)\s*\"[A-Z][A-Z0-9_]*\"",
+     "LOW", "常量/环境变量名大小写比较 — 名称区分大小写，对名称做 ${var,,} 归一化会破坏匹配",
+     "先确认比较对象是环境变量名（保留精确匹配）还是生成方值（用 [[ \"${var,,}\" = ... ]] 归一化）；"
+     "名称集合用 case \"$var\" in DEEPSEEK_API_KEY|OPENAI_API_KEY) 显式列出合法分支"),
 ]
 
 
 def bomb_scan(source: str) -> Dict[str, object]:
-    """扫描 bash 迁移炸弹：python3 内联 / stderr 吞错 / 危险命令。
+    """扫描 bash 迁移炸弹：python3 内联 / stderr 吞错 / 危险命令 / 大小写敏感比较。
 
     输出按 kind 分组的行级清单 + 计数，供迁移收尾前逐条消解。
+    每条 finding 带 severity + risk + **fix**（zizmor 式：检测 → 分级 → 修复方法）。
     """
     groups: Dict[str, List[Dict[str, object]]] = {}
     for i, line in enumerate(source.splitlines(), 1):
-        for kind, pat, sev, risk in _BOMB_PATTERNS:
+        for kind, pat, sev, risk, fix in _BOMB_PATTERNS:
             if re.search(pat, line):
                 groups.setdefault(kind, []).append({
-                    "line": i, "severity": sev, "risk": risk,
+                    "line": i, "severity": sev, "risk": risk, "fix": fix,
                     "text": line.strip()[:120]})
                 break
     counts = {k: len(v) for k, v in groups.items()}

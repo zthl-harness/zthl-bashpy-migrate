@@ -58,6 +58,39 @@ EOF
     assert r["total"] == 4
 
 
+def test_bomb_scan_case_sensitive_detected():
+    """2026-08-25: 大小写敏感比较（zizmor 式检测）— 值比较（camelCase）与常量比较（ALL_CAPS）分别命中。"""
+    src = """f() {
+  if [ "$_allowed" = "False" ]; then echo no; fi
+  [[ "$verdict" == "APPROVED" ]] && echo yes
+  echo "$x" != "ok" && echo no  # 小写字面量不命中
+}
+"""
+    r = bomb_scan(src)
+    c = r["counts"]
+    assert c["case_sensitive"] == 1, f"值比较应命中 1 处: {c}"
+    assert c["case_sensitive_const"] == 1, f"常量比较应命中 1 处: {c}"
+    # 小写字面量不命中（两类均不命中）
+    for grp in (r["groups"].get("case_sensitive", []), r["groups"].get("case_sensitive_const", [])):
+        assert 'x" != "ok"' not in str(grp)
+
+
+def test_bomb_scan_every_finding_has_fix():
+    """2026-08-25: zizmor 模式 — 每条 finding 必须带 severity + risk + fix（检测→分级→修复）。"""
+    src = """f() {
+  python3 -c "print(1)"
+  grep x 2>/dev/null
+  if [ "$a" = "False" ]; then :; fi
+}
+"""
+    r = bomb_scan(src)
+    for kind, items in r["groups"].items():
+        for item in items:
+            assert item["severity"], f"{kind} 缺 severity"
+            assert item["risk"], f"{kind} 缺 risk"
+            assert item["fix"], f"{kind} 缺 fix: {item}"
+
+
 def test_llm_degrade_without_key():
     r = llm_explain([{"item": "x"}], api_key=None)
     assert r["mode"] == "degraded"
