@@ -1,0 +1,7 @@
+# DSH bundle patch — @zthl-harness/dsh-bashpy-migrate
+# 对齐 DSH bundle 格式（docs/user/develop/basic/publish.md）：
+# package.json 声明 dsh.bundle.patch 指向本文件，profile 的 dsh.profile.bundles 列出
+# 本包名后 reconcilePlugins 即注入本层。插件行引用包名，Node resolution 找到已装代码。
+- insert:
+    - id: bashpy-migrate
+      name: '@zthl-harness/dsh-bashpy-migrate'

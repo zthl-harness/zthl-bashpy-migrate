@@ -14,12 +14,16 @@ on:
     paths:
       - 'zthl_bashpy_migrate/**'
       - 'tests/**'
+      - 'npm/**'
+      - 'scripts/*.sh'
       - '.github/workflows/*.yml'
       - 'pyproject.toml'
   pull_request:
     paths:
       - 'zthl_bashpy_migrate/**'
       - 'tests/**'
+      - 'npm/**'
+      - 'scripts/*.sh'
       - '.github/workflows/*.yml'
       - 'pyproject.toml'
 
@@ -230,3 +234,34 @@ jobs:
             echo "::error::UTF-8 BOM found (L1)"
             exit 1
           fi
+
+  # ── 供应链：DSH npm 包装包投毒防护（2026-08-26）──────────────
+  # 插件自己发 npm 包 → 必须被自身 CI 检测是否被投毒。
+  # 机制：scripts/npm-bundle.sh 构建 tarball + 计算 sha512 integrity（内容确定性），
+  # 产出 npm-integrity.json。skill 侧 gk_plugin_manifest 对 url:npm: 强制
+  # config.integrity 对账；发布后 npm view <pkg>@<ver> dist.integrity 与本地 hash 比对
+  # 即检测 registry 投毒（对齐 zizmor 供应链审计同款哲学：无对账 = 无防御）。
+  npm-supply-chain:
+    name: npm-supply-chain (pack + integrity)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Node engine tests (npm adapter)
+        run: |
+          node --test npm/dsh-bashpy-migrate/index.test.mjs
+      - name: Build bundle + integrity manifest
+        run: |
+          bash scripts/npm-bundle.sh
+          cat npm/dsh-bashpy-migrate/npm-integrity.json
+      - name: Verify pack contents (only declared files ship)
+        run: |
+          cd npm/dsh-bashpy-migrate
+          tar tzf ./*.tgz | grep -E 'package/(index.js|engine.js|cordis.patch.yml|package.json)$' | sort
+          test "$(tar tzf ./*.tgz | grep -c '^package/' )" -eq 4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: npm-integrity
+          path: npm/dsh-bashpy-migrate/npm-integrity.json
+          retention-days: 7

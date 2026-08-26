@@ -9,6 +9,9 @@ build/
 .ruff_cache/
 # 临时调试区（对齐技能仓库 scripts/_*_test.py 模式，不进版本库）
 scripts/_*.py
+# DSH npm 包装：打包产物 tgz + integrity JSON 不进版本库（CI/release 资产提供，每次构建重新生成）
+npm/dsh-bashpy-migrate/*.tgz
+npm/dsh-bashpy-migrate/npm-integrity.json
 # IDE / agent 本地配置（不进版本库）
 .claude/
 AGENTS.md
