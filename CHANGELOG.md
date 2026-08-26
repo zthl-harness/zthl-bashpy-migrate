@@ -1,5 +1,31 @@
 # Changelog
 
+## v0.2.1 (2026-08-26)
+
+Changes since v0.2.0。CLI audit 补齐三层聚合——本地调用（`audit --bomb --shellcheck --py-deadcode`）
+真正三层全部生效；`--explain` 聚合升级覆盖 groups 嵌套 finding。
+
+### CLI 三层聚合
+
+- **`audit --shellcheck` / `audit --py-deadcode`**: shellcheck TOP 子集与 Python 模块级
+  死代码从函数层暴露到 CLI 契约，与 `--bomb` 一次同报三层；skill 侧 `_plugin_sc_counts`
+  直连 import 与 gk_audit_depth 拆分调用的现状可统一走 CLI。30 测试全过
+  （自 v0.2.0 的 28 → 30）。
+- **`--explain` groups 展平** (`320c4a8`): LLM 兜底清单从 candidates/issues 扩展到
+  bomb/shellcheck 的 groups 嵌套 finding——原代码只收 candidates/issues，炸弹 finding
+  从未进过 LLM 解释。
+
+### 分类学与自述
+
+- **L3 audit 检测器映射** (`521c25d`): migration-issues.md 新增「L3 audit 检测器映射」
+  小节——5 检测器（bomb_scan / shellcheck_scan / python_module_deadcode / dead_code /
+  write_guard_check）↔ 25 类 ↔ 业界工具（zizmor / shellcheck / vulture / pyflakes）；
+  README 双语分类学章节补指引。
+
+### 版本号
+
+- **Version 0.2.1**: `pyproject.toml`（`[project] version = "0.2.1"`）。
+
 ## v0.2.0 (2026-08-26)
 
 Changes since v0.1.0。L3 audit 从"迁移炸弹扫描"升级为**统一 bash+python 确定性静态审计引擎**。
