@@ -55,6 +55,19 @@ jobs:
           # tgz + integrity 清单并入 dist 资产（release 附件即官方 integrity 来源）
           cp npm/dsh-bashpy-migrate/*.tgz dist/
           cp npm/dsh-bashpy-migrate/npm-integrity.json dist/
+      # wheel 完整性清单（2026-08-26）：skill 侧 gk_bashpy_upgrade upgrade 下载 wheel 后
+      # 与官方 wheel-integrity.json sha256 比对——堵 wheel self-certification 漏洞
+      # （投毒 wheel 自证哈希无第三方比对源）。release 附件即官方对账源。
+      - name: Build wheel integrity manifest (supply-chain)
+        run: |
+          python3 - <<'PY'
+          import glob, hashlib, json
+          whl = glob.glob("dist/*.whl")[0]
+          h = hashlib.sha256(open(whl, "rb").read()).hexdigest()
+          json.dump({"wheel": whl.split("/")[-1], "sha256": h},
+                    open("dist/wheel-integrity.json", "w"), indent=2)
+          print("wheel sha256:", h)
+          PY
       - name: Upload dist
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:

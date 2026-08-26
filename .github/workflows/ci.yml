@@ -274,3 +274,37 @@ jobs:
           name: npm-integrity
           path: npm/dsh-bashpy-migrate/npm-integrity.json
           retention-days: 7
+
+  # ── 供应链：wheel 完整性清单（upgrade 对账源，2026-08-26）──────────
+  # skill 侧 gk_bashpy_upgrade upgrade 下载 wheel 后与官方 wheel-integrity.json
+  # sha256 比对（堵 wheel self-certification 漏洞：投毒 wheel 自证哈希无第三方源）。
+  # 发布时 wheel-integrity.json 作为 Release 资产上传（release.yml build job 同源生成）。
+  wheel-supply-chain:
+    name: wheel-supply-chain (build + integrity)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
+        with:
+          python-version: "3.11"
+      - name: Install build backend
+        run: pip install build
+      - name: Build wheel
+        run: python -m build --wheel
+      - name: Generate wheel-integrity.json
+        run: |
+          python3 - <<'PY'
+          import glob, hashlib, json
+          whl = glob.glob("dist/*.whl")[0]
+          h = hashlib.sha256(open(whl, "rb").read()).hexdigest()
+          json.dump({"wheel": whl.split("/")[-1], "sha256": h},
+                    open("dist/wheel-integrity.json", "w"), indent=2)
+          print("wheel sha256:", h)
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: wheel-integrity
+          path: dist/wheel-integrity.json
+          retention-days: 7
