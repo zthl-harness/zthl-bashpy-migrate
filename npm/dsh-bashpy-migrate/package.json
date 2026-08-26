@@ -1,6 +1,6 @@
 {
   "name": "@zthl-harness/dsh-bashpy-migrate",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "DSH bundle wrapping zthl-bashpy-migrate — deterministic bash→Python migration audit (bomb scan / shellcheck TOP subset / Python module-level deadcode)",
   "license": "MulanPSL-2.0",
   "type": "module",

@@ -79,6 +79,34 @@ bashpy-migrate verify --baseline baseline.json --output result.json
 bashpy-migrate audit --script gatekeeper-cli.sh --entry main --write-fns "_state_write,_write_state"
 ```
 
+## DSH 集成（npm bundle）
+
+引擎以 DSH（DeepSeek Harness，cordis 插件生态）bundle 形态提供：`npm/dsh-bashpy-migrate/`
+包装器通过 `defineTool` 把 CLI 注册成模型可直接调用的 `bashpy_migrate_scan` 工具
+（bomb / shellcheck / py_deadcode / explain 四个参数，一次调用三层同报）。
+
+**本地安装（零公共 registry 投毒面）**：构建 tarball 后装进目标 profile——
+
+```bash
+bash scripts/npm-bundle.sh   # 产出 tarball + npm-integrity.json（tarball sha512）
+dsh plugin --profile web add npm/dsh-bashpy-migrate/zthl-harness-dsh-bashpy-migrate-0.2.3.tgz
+dsh --profile web            # 重启生效
+```
+
+供应链对账：`npm-integrity.json` 的 `sha512-` integrity 是 tarball 内容确定性哈希，
+skill 侧 `gk_plugin_manifest` 对 `url: npm:` 段强制 `config.integrity` 对账（本地 tarball
+不经过任何公共 registry，不存在投毒面）。发布到公共 npm 后可用
+`npm view @zthl-harness/dsh-bashpy-migrate@<ver> dist.integrity` 与本地 hash 比对检测投毒。
+CI `npm-supply-chain` job 自动校验 pack 内容（声明文件 + README）与 node adapter 测试。
+
+**调用**：DSH web UI 新会话直接描述任务即可，例如
+
+> 用 bashpy_migrate_scan 审计 C:/path/to/x.sh，开启 bomb + shellcheck + py_deadcode
+
+模型自动调用工具并返回结构化报告（每条 finding 带 severity + risk + fix）。
+
+版本同步约定：`pyproject.toml` / `__init__.py` / npm `package.json` 三处版本必须一致。
+
 ## 迁移问题分类学
 
 6 大域 25 类 bash→Python 迁移问题，来自真实迁移实践（ZTHL gatekeeper 迁移 Phase 7），

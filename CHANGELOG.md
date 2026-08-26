@@ -1,5 +1,35 @@
 # Changelog
 
+## v0.2.3 (2026-08-26)
+
+Changes since v0.2.2。DSH 本地红队实测修掉 npm 包装器三个真 bug（schema 严格子集 /
+Windows python 平台默认 / schema 参数名与 CLI flag 漂移），并补 README 双语 DSH 集成文档。
+
+### npm 包装器三连修（DSH 红队实测）
+
+- **`output.schema` 显式 `additionalProperties: true`**: dsh-tools 作者侧 schema 子集强制
+  object 节点必须显式声明 `additionalProperties: true|false`，缺失直接 `JsonSchemaError`
+  导致插件 boot 失败（本地 `dsh --profile web` 实测抓到）。
+- **engine 默认解释器按平台**: `runAudit` 默认 `python3` 在 Windows（只有 `python` 命令）
+  execute 必挂——改为 `BASHPY_PYTHON` 覆盖优先、否则按平台（win32=python）。
+- **`auditArgv` 统一 `py_deadcode`（蛇形）**: schema 暴露 `py_deadcode` 而 engine 解构
+  `pyDeadcode`（驼峰），`execute` 透传 args 导致 `--py-deadcode` 永不触发——统一为蛇形
+  并对齐 schema 参数名。
+- **`toolSpec` 纯数据导出 + dsh-tools 改动态 import**: 未安装 peer 也可直接测 schema；
+  `index.test.mjs` 7 用例（新增 schema 子集 / 平台默认 / 参数名零漂移回归）。
+
+### 文档与验证
+
+- **README 双语 DSH 集成章节**: `README.md` / `README.zh-CN.md` 新增「DSH Integration
+  (npm bundle)」——本地 tarball 安装（零公共 registry 投毒面）、供应链对账
+  （`config.integrity` 强制 + `npm view dist.integrity` 比对）、`bashpy_migrate_scan` 调用方式。
+- **本地 DSH 全链路验证**: `dsh plugin add <tarball>` → bundle 层注入组合配置 → 真实
+  dsh-tools `defineTool` 注册 → 三层扫描（bomb / shellcheck / py_deadcode）实测命中。
+
+### 版本号
+
+- **Version 0.2.3**: `pyproject.toml` + `__init__.py` + npm `package.json` 三处同步。
+
 ## v0.2.2 (2026-08-26)
 
 Changes since v0.2.1。新增 DSH（DeepSeek Harness）npm 包装器 + 发布包供应链防护 +

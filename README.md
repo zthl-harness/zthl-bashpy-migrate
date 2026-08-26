@@ -85,6 +85,36 @@ bashpy-migrate verify --baseline baseline.json --output result.json
 bashpy-migrate audit --script gatekeeper-cli.sh --entry main --write-fns "_state_write,_write_state"
 ```
 
+## DSH Integration (npm bundle)
+
+The engine is also shipped as a DSH (DeepSeek Harness, cordis plugin ecosystem) bundle:
+`npm/dsh-bashpy-migrate/` wraps the CLI through `defineTool` into the model-callable
+`bashpy_migrate_scan` tool (bomb / shellcheck / py_deadcode / explain parameters — one call
+reports all three layers).
+
+**Local install (zero public-registry attack surface)**: build the tarball, then add it to a profile:
+
+```bash
+bash scripts/npm-bundle.sh   # produces tarball + npm-integrity.json (tarball sha512)
+dsh plugin --profile web add npm/dsh-bashpy-migrate/zthl-harness-dsh-bashpy-migrate-0.2.3.tgz
+dsh --profile web            # restart to activate
+```
+
+Supply-chain reconciliation: the `sha512-` integrity in `npm-integrity.json` is a content-
+deterministic hash of the tarball; the skill-side `gk_plugin_manifest` enforces `config.integrity`
+for any `url: npm:` segment (a local tarball never passes through a public registry, so there is
+no poisoning surface). If ever published, `npm view @zthl-harness/dsh-bashpy-migrate@<ver>
+dist.integrity` compared against the local hash detects registry tampering. The `npm-supply-chain`
+CI job validates the pack contents (declared files + README) and runs the node adapter tests.
+
+**Usage**: in a DSH web UI session, just describe the task, e.g.
+
+> Use bashpy_migrate_scan to audit C:/path/to/x.sh with bomb + shellcheck + py_deadcode
+
+The model invokes the tool and gets a structured report (every finding carries severity + risk + fix).
+
+Version-sync convention: `pyproject.toml` / `__init__.py` / npm `package.json` must stay in lockstep.
+
 ## Migration Issue Taxonomy
 
 25 categories of bash → Python migration problems in 6 domains, collected from real migration
