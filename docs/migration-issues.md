@@ -182,6 +182,19 @@
 | E | 18-21 | `probe`：bash -n / py_compile 预检 |
 | F | 22-25 | `audit`：死代码三关 + 写入守卫审查 + checksum 验证 |
 
+## L3 audit 检测器映射（2026-08 扩展，zizmor 模式）
+
+25 类迁移问题之上，L3 audit 提供确定性检测器，每条 finding 带 `severity + risk + fix`（zizmor 模式：
+检测 → 分级 → 修复）。检测器 ↔ 分类学类别 ↔ 业界工具对应：
+
+| 检测器 | 检测对象 | 分类学类别 | 业界对应 |
+|:--|:--|:--|:--|
+| `bomb_scan` | python3 内联（含 heredoc）/ stderr 吞错 / 危险命令 / 大小写敏感耦合 | F（安全网） | zizmor |
+| `shellcheck_scan` | SC2086 裸变量展开 / SC2164 `cd` 失败 / SC2181 `$?` 反模式 / SC2034 未使用变量（TOP 子集，零外部依赖确定性移植） | D/E 交叉（静默失败面） | shellcheck |
+| `python_module_deadcode` | Python 模块级未使用 import/函数（AST，零依赖） | #25 死代码三关的 Python 侧扩展 | vulture / pyflakes |
+| `dead_code` | bash 函数可达性三关 | #25 | gitnexus / rg |
+| `write_guard_check` | 写入函数无 dry_run 守卫（AST 扫 `*_write*`） | #6 / #23 | — |
+
 *本文件为开发知识沉淀，与工具功能一一对应。*
 
 *This file is engineering knowledge distilled from real migration practice; each category maps to a tool capability.*

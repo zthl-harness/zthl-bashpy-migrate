@@ -84,6 +84,9 @@ bashpy-migrate audit --script gatekeeper-cli.sh --entry main --write-fns "_state
 6 大域 25 类 bash→Python 迁移问题，来自真实迁移实践（ZTHL gatekeeper 迁移 Phase 7），
 每类"现象 → 根因 → 解法"：**[docs/migration-issues.md](docs/migration-issues.md)**
 
+L3 audit 确定性检测器（炸弹扫描 / shellcheck TOP 子集 / Python 模块级死代码 / 写入守卫）与
+25 类的映射见 [docs/migration-issues.md](docs/migration-issues.md)「L3 audit 检测器映射」小节。
+
 ## 验收标准
 
 量化、可自动验证的标准，映射到各层（对齐 ZTHL gatekeeper Phase 7 验收风格：

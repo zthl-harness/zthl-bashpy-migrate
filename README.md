@@ -91,6 +91,10 @@ bashpy-migrate audit --script gatekeeper-cli.sh --entry main --write-fns "_state
 practice (Phase 7 of the ZTHL gatekeeper migration), each with phenomenon → root cause → solution:
 **[docs/migration-issues.md](docs/migration-issues.md)**
 
+The L3 audit deterministic detectors (bomb scan / shellcheck TOP subset / Python module-level
+deadcode / write-guard) and their mapping onto the 25 categories are in the "L3 audit detector
+mapping" section of [docs/migration-issues.md](docs/migration-issues.md).
+
 ## Acceptance Criteria
 
 Quantified, auto-verifiable criteria mapped to each layer (aligned with the ZTHL gatekeeper
