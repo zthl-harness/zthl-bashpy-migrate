@@ -169,3 +169,54 @@ def test_llm_degrade_without_key():
     r = llm_explain([{"item": "x"}], api_key=None)
     assert r["mode"] == "degraded"
     assert r["items"] == [{"item": "x"}]
+
+
+def test_cli_audit_aggregates_three_layers(tmp_path, monkeypatch):
+    """2026-08-26: CLI audit 三层聚合 — --bomb / --shellcheck / --py-deadcode 同报。
+
+    本地调用真正三层全生效的契约：bash 样本出 bomb+shellcheck 两层，
+    Python 样本出模块级死代码层；三层 report 同构（counts/groups 或 unused_*）。
+    """
+    from zthl_bashpy_migrate import cli as cli_mod
+
+    bash = tmp_path / "sample.sh"
+    bash.write_text('f() {\n  cd "$HOME"\n  echo $name\n  python3 -c "print(1)"\n}\n',
+                    encoding="utf-8")
+    py = tmp_path / "sample.py"
+    py.write_text("import os\n\ndef main():\n    print(1)\n", encoding="utf-8")
+
+    captured = {}
+    monkeypatch.setattr(cli_mod, "_emit", lambda obj: captured.update(obj))
+
+    args = cli_mod.build_parser().parse_args(
+        ["audit", "--script", str(bash), "--bomb", "--shellcheck"])
+    assert args.func(args) == 0
+    assert "bomb_scan" in captured and captured["bomb_scan"]["total"] >= 1
+    assert "shellcheck_scan" in captured and "counts" in captured["shellcheck_scan"]
+
+    captured.clear()
+    args = cli_mod.build_parser().parse_args(
+        ["audit", "--script", str(py), "--py-deadcode"])
+    assert args.func(args) == 0
+    assert "python_module_deadcode" in captured
+    assert captured["python_module_deadcode"]["unused_imports"] == [
+        {"name": "os", "line": 1}]
+
+
+def test_cli_audit_explain_aggregates_group_findings(tmp_path, monkeypatch):
+    """2026-08-26: --explain 聚合 groups 展平 — shellcheck finding 也进 LLM 兜底清单。"""
+    from zthl_bashpy_migrate import cli as cli_mod
+
+    bash = tmp_path / "sample.sh"
+    bash.write_text("f() {\n  echo $name\n}\n", encoding="utf-8")
+
+    captured = {}
+    monkeypatch.setattr(cli_mod, "_emit", lambda obj: captured.update(obj))
+
+    args = cli_mod.build_parser().parse_args(
+        ["audit", "--script", str(bash), "--shellcheck", "--explain"])
+    assert args.func(args) == 0
+    llm = captured["llm"]
+    assert llm["mode"] == "degraded"
+    assert any("SC2086" in str(it) for it in llm["items"]), \
+        f"shellcheck finding 应进入 LLM 清单: {llm['items']}"

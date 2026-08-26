@@ -17,7 +17,8 @@ from typing import List, Optional
 
 from . import __version__
 from .analyze import analyze as l1_analyze
-from .audit import bomb_scan, dead_code, llm_explain, write_guard_check
+from .audit import (bomb_scan, dead_code, llm_explain, python_module_deadcode,
+                    shellcheck_scan, write_guard_check)
 from .verify import (capture_baseline, dry_run_check, loads_json, verify)
 
 
@@ -68,11 +69,18 @@ def _cmd_audit(args) -> int:
         report["write_guard"] = write_guard_check(src, fns)
     if args.bomb:
         report["bomb_scan"] = bomb_scan(src)
+    if args.shellcheck:
+        report["shellcheck_scan"] = shellcheck_scan(src)
+    if args.py_deadcode:
+        report["python_module_deadcode"] = python_module_deadcode(src)
     if args.explain and report:
         items: List[dict] = []
         for sec in report.values():
-            for it in sec.get("candidates", sec.get("issues", [])):
-                items.append(it)
+            if not isinstance(sec, dict):
+                continue
+            items.extend(sec.get("candidates", sec.get("issues", [])))
+            for group in (sec.get("groups") or {}).values():
+                items.extend(group)
         report["llm"] = llm_explain(items, args.api_key)
     _emit(report)
     return 0
@@ -108,7 +116,9 @@ def build_parser() -> argparse.ArgumentParser:
     v.add_argument("--state", help="state 文件（dry-run 检查前后 hash 对比）")
     v.set_defaults(func=_cmd_verify)
 
-    au = sub.add_parser("audit", help="L3: 死代码三关 + 写入守卫 + 炸弹标记 + LLM 兜底")
+    au = sub.add_parser(
+        "audit",
+        help="L3: 死代码三关 + 写入守卫 + 炸弹标记 + shellcheck TOP 子集 + Python 模块级死代码 + LLM 兜底")
     au.add_argument("--script", required=True, help="bash 或 Python 源码路径")
     au.add_argument("--dead-code", action="store_true", help="跑死代码三关")
     au.add_argument("--entry", default="main", help="生产入口函数（逗号分隔）")
@@ -116,6 +126,10 @@ def build_parser() -> argparse.ArgumentParser:
                     help="写入函数名（逗号分隔）")
     au.add_argument("--bomb", action="store_true",
                     help="炸弹标记扫描（python3 内联 / stderr 吞错 / 危险命令）")
+    au.add_argument("--shellcheck", action="store_true",
+                    help="shellcheck TOP 子集扫描（sc2086/sc2164/sc2181/sc2034，零依赖确定性移植）")
+    au.add_argument("--py-deadcode", action="store_true",
+                    help="Python 模块级死代码扫描（AST 未使用 import/函数）")
     au.add_argument("--explain", action="store_true", help="LLM 解释（可选）")
     au.add_argument("--api-key", default=None, help="LLM API key（缺省降级人工审查）")
     au.set_defaults(func=_cmd_audit)
