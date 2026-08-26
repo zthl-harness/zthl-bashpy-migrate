@@ -1,5 +1,39 @@
 # Changelog
 
+## v0.2.2 (2026-08-26)
+
+Changes since v0.2.1。新增 DSH（DeepSeek Harness）npm 包装器 + 发布包供应链防护 +
+版本同步修复。
+
+### DSH npm 包装器
+
+- **`@zthl-harness/dsh-bashpy-migrate` bundle**: `npm/dsh-bashpy-migrate/` —
+  package.json 声明 `dsh.bundle.patch`（cordis.patch.yml 注入 `bashpy-migrate` 行），
+  `index.js` 用 `defineTool` 注册 `bashpy_migrate_scan`（bomb / shellcheck / py_deadcode
+  / explain），subprocess 透传插件 CLI（引擎零改动）；`engine.js` 抽离纯逻辑
+  （argv 构造 + execFile + JSON 解析），无 DSH 运行时也可单测（node:test 3 用例）。
+  peer 依赖 `@deepseek-ai/dsh-tools ^0.1.1-rc.2`（宿主提供，不重复安装）。
+
+### 发布包供应链防护
+
+- **npm-supply-chain CI job**（ci.yml）: 插件自己发 npm 包 → 自身 CI 必须检测投毒。
+  `scripts/npm-bundle.sh` 构建 tarball + 计算 `sha512-` integrity（内容确定性）+
+  `package-lock.json` 依赖 pin，产出 `npm-integrity.json` 资产；同时跑 node adapter
+  测试 + 校验 pack 只含声明的 4 个文件。release.yml build job 把 tgz + integrity
+  并入发布资产——skill 侧 `gk_plugin_manifest` 对 `url: npm:` 强制 `config.integrity`
+  对账，发布后 `npm view <pkg>@<ver> dist.integrity` 与本地 hash 比对即检测 registry
+  投毒（对齐 zizmor 供应链审计哲学：无对账 = 无防御）。
+
+### 版本同步修复
+
+- **`__version__` 同步**: `zthl_bashpy_migrate/__init__.py` 0.1.0 → 0.2.2（CLI
+  `--version` 与 loader 显示与 pyproject 一致，dev loader 不再误报 0.1.0-dev）。
+
+### 版本号
+
+- **Version 0.2.2**: `pyproject.toml`（`[project] version = "0.2.2"`）+ npm 包装
+  `package.json` version 0.2.2。
+
 ## v0.2.1 (2026-08-26)
 
 Changes since v0.2.0。CLI audit 补齐三层聚合——本地调用（`audit --bomb --shellcheck --py-deadcode`）
