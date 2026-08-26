@@ -20,6 +20,10 @@
 `zthl-bashpy-migrate` 的独特前提：迁移发生在 bash 版与 Python 版**并存期**（bash 版被替换前），
 因此可以保存 bash 版输出作为**固化快照**，之后持续对比 Python 版——语义等价可被确定性验证。
 
+> **与业界静态审计工具的系统性对比**（zizmor / shellcheck / ruff / vulture / semgrep /
+> bash2py / AI 转换）：
+> [docs/industry-comparison.md](docs/industry-comparison.md)。
+
 ## 与 ZTHL 框架的关系
 
 ZTHL（零信任自引用演化治理，[ChinaXiv:202607.00158](https://chinaxiv.org/abs/202607.00158)）

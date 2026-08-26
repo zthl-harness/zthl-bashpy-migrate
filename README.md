@@ -24,6 +24,10 @@ Python version **coexist** (before the bash version is replaced). Therefore the 
 captured as a **frozen baseline**, and the Python output can be continuously compared against it —
 semantic equivalence becomes deterministically verifiable.
 
+> **Systematic comparison with industry static-audit tools** (zizmor / shellcheck / ruff /
+> vulture / semgrep / bash2py / AI converters):
+> [docs/industry-comparison.md](docs/industry-comparison.md).
+
 ## Relationship with the ZTHL Framework
 
 ZTHL (Zero-Trust Self-Referential Evolutionary Governance, [ChinaXiv:202607.00158](https://chinaxiv.org/abs/202607.00158))

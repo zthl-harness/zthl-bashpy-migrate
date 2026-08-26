@@ -1,5 +1,35 @@
 # Changelog
 
+## v0.2.0 (2026-08-26)
+
+Changes since v0.1.0。L3 audit 从"迁移炸弹扫描"升级为**统一 bash+python 确定性静态审计引擎**。
+
+### L3 audit 能力扩展
+
+- **大小写敏感检测 + zizmor 式修复三件套** (`f85ecf7`): 新增 `case_sensitive`（camelCase
+  值耦合，如 `= "False"` 依赖 python bool repr 大写）与 `case_sensitive_const`（ALL_CAPS
+  常量/环境变量名，大小写是语义一部分，勿归一化）两类规则、分开给修复方法；`bomb_scan`
+  每条 finding 升级为 **severity + risk + fix**（检测 → 分级 → 修复，对齐 zizmor 模式）。
+- **shellcheck TOP 子集确定性移植** (`e108315`): `shellcheck_scan()` 零外部依赖实现
+  sc2086（行级引号状态机 + 命令替换跳过）/ sc2164 / sc2181 / sc2034（常量/META 契约豁免）；
+  python 内联/heredoc 内容跳过（归 bomb_scan.inline_python 管）。实测 gatekeeper-cli.sh：
+  sc2086 70 / sc2034 55 / sc2181 1——确定性替代外部 shellcheck binary 的 L3.5 gate1 信号源。
+- **python_module_deadcode** (`097aa98`): AST 模块级未使用 import/函数（零依赖，
+  无 vulture/pyflakes），吸收 gk_audit_depth 能力——插件成为统一 bash+python 静态引擎。
+  28 测试全过（自 v0.1.0 的 19 → 28）。
+
+### 版权与自述
+
+- **MulanPSL-2.0 版权头全量** (`3a3a941`): 10 文件对齐 spz2glb 格式。
+- **README 更新 + Copyright 署名** (`219784f`): 三层架构 L3 段、验收标准（+2 行新能力、
+  pytest ≥28）、License 段补 `Copyright (c) 2026 Pu Junhan` 署名行。
+
+### CI 供应链
+
+- **release.yml 权限最小化 + action pin 修正** (`848a336`): `contents: write` 过宽→仅
+  release job 授权；`download-artifact@v5` 与 `action-gh-release@v3.0.2` 改 peeled hash
+  （zizmor 在线拦截 `excessive-permissions` / `ref-version-mismatch`）。
+
 ## v0.1.0 (2026-08-24)
 
 Changes since 初始提交 (`242eb35`)。首个发布版本，tag `v0.1.0`。

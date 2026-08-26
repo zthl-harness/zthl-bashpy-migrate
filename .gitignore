@@ -5,6 +5,10 @@ dist/
 build/
 .pytest_cache/
 .venv/
+# ruff 缓存（python_lint 门禁运行时生成）
+.ruff_cache/
+# 临时调试区（对齐技能仓库 scripts/_*_test.py 模式，不进版本库）
+scripts/_*.py
 # IDE / agent 本地配置（不进版本库）
 .claude/
 AGENTS.md
