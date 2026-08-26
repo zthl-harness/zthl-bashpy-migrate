@@ -5,7 +5,8 @@
 
 """L3 audit tests: dead code / write guard (bash+python) / bomb scan / shellcheck TOP / LLM degrade."""
 from zthl_bashpy_migrate.audit import (
-    bomb_scan, dead_code, llm_explain, shellcheck_scan, write_guard_check,
+    bomb_scan, dead_code, llm_explain, python_module_deadcode,
+    shellcheck_scan, write_guard_check,
 )
 
 
@@ -140,6 +141,28 @@ PYEOF
     # heredoc python 内容不报 sc2034；bash 行 echo $name 仍报 sc2086
     assert "u=d.get" not in str(r["groups"].get("sc2034_unused", []))
     assert r["counts"]["sc2086_unquoted"] == 1, f"bash 裸变量应命中: {r['counts']}"
+
+
+def test_python_module_deadcode():
+    """2026-08-26: 模块级死代码（吸收自 gk_audit_depth）— 未使用 import + 未调用函数。"""
+    src = ("import os\nimport json\n\n"
+           "def unused():\n    pass\n\n"
+           "def used():\n    return 1\n\n"
+           "print(used(), json.dumps({}))\n")
+    r = python_module_deadcode(src)
+    imports = {i["name"] for i in r["unused_imports"]}
+    assert "os" in imports, f"os 未使用应报: {imports}"
+    assert "json" not in imports, f"json 被引用不应报: {imports}"
+    assert r["unused_functions"] == [{"name": "unused", "line": 4}]
+    assert r["total"] == 2
+
+
+def test_python_module_deadcode_main_exempt():
+    """main 函数豁免（对齐 gk_audit_depth）；语法错误返回 error 不崩溃。"""
+    r = python_module_deadcode("def main():\n    pass\n")
+    assert r["unused_functions"] == []
+    r2 = python_module_deadcode("def broken(:\n")
+    assert "error" in r2
 
 
 def test_llm_degrade_without_key():

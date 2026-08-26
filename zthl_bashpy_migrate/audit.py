@@ -57,6 +57,55 @@ def dead_code(source: str, entrypoints: List[str]) -> Dict[str, object]:
     return {"candidates": candidates, "call_graph": call_graph}
 
 
+def python_module_deadcode(source: str) -> Dict[str, object]:
+    """Python 模块级死代码（2026-08-26 吸收自 gk_audit_depth，插件统一静态引擎）。
+
+    AST 检测：未使用 import + 模块级未调用函数（零依赖，无 vulture/pyflakes）。
+    对齐 gk_audit_depth 语义：import 行自身不计引用；def 行不计函数引用；
+    main 函数豁免。跨模块消费不在单文件审计范围（gk_audit_depth 的 CLI 侧职责）。
+    """
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return {"error": "python syntax error — cannot audit"}
+    lines = source.split("\n")
+
+    def ref_count(name: str, exclude_line: int = None, exclude_def: bool = False) -> int:
+        count = 0
+        for i, ln in enumerate(lines, 1):
+            if exclude_line and i == exclude_line:
+                continue
+            if exclude_def and ln.lstrip().startswith("def " + name):
+                continue
+            count += len(re.findall(r"\b" + re.escape(name) + r"\b", ln))
+        return count
+
+    unused_imports: List[Dict[str, object]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for a in node.names:
+                name = a.asname or a.name.split(".")[0]
+                if ref_count(name, exclude_line=node.lineno) <= 0:
+                    unused_imports.append({"name": name, "line": node.lineno})
+        elif isinstance(node, ast.ImportFrom):
+            for a in node.names:
+                if a.name == "*":
+                    continue
+                name = a.asname or a.name
+                if ref_count(name, exclude_line=node.lineno) <= 0:
+                    unused_imports.append({"name": name, "line": node.lineno})
+    unused_functions: List[Dict[str, object]] = []
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef) and node.name != "main":
+            if ref_count(node.name, exclude_def=True) <= 0:
+                unused_functions.append({"name": node.name, "line": node.lineno})
+    return {
+        "unused_imports": unused_imports,
+        "unused_functions": unused_functions,
+        "total": len(unused_imports) + len(unused_functions),
+    }
+
+
 # ─── 写入守卫审查（bash 启发式 + Python AST）───
 
 def write_guard_check(source: str, write_fns: List[str],
