@@ -248,6 +248,11 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
+      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
+        with:
+          python-version: "3.11"
+      - name: Install engine (node adapter round-trip needs the Python package)
+        run: pip install -e .
       - name: Node engine tests (npm adapter)
         run: |
           node --test npm/dsh-bashpy-migrate/index.test.mjs
@@ -255,11 +260,15 @@ jobs:
         run: |
           bash scripts/npm-bundle.sh
           cat npm/dsh-bashpy-migrate/npm-integrity.json
-      - name: Verify pack contents (only declared files ship)
+      - name: Verify pack contents (declared files + npm-auto README)
         run: |
           cd npm/dsh-bashpy-migrate
-          tar tzf ./*.tgz | grep -E 'package/(index.js|engine.js|cordis.patch.yml|package.json)$' | sort
-          test "$(tar tzf ./*.tgz | grep -c '^package/' )" -eq 4
+          files=$(tar tzf ./*.tgz | grep -E '^package/[^/]+$' | sed 's#^package/##' | sort)
+          echo "packed files:"; echo "$files"
+          printf 'cordis.patch.yml\nengine.js\nindex.js\npackage.json\nREADME.md\n' \
+            | sort | cmp -s - <(echo "$files") \
+            || { echo "::error::pack 内容与声明不符"; exit 1; }
+          echo "pack contents OK (5 files: 4 declared + README auto-included by npm)"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: npm-integrity
