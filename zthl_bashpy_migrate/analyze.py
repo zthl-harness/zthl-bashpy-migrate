@@ -16,6 +16,8 @@ import json
 import re
 from typing import Dict, List, Optional
 
+from .inventory import scan_inline
+
 _FUNC_RE = re.compile(r"^(?:function\s+)?([A-Za-z_][A-Za-z0-9_]*)\(\)\s*\{", re.M)
 _LOCAL_RE = re.compile(r"\blocal\s+([A-Za-z_][A-Za-z0-9_]*)")
 _VAR_REF_RE = re.compile(r"\$([A-Za-z_][A-Za-z0-9_]*)")
@@ -72,6 +74,10 @@ def extract_functions(source: str) -> Dict[str, Dict[str, object]]:
         locals_decl = [x.group(1) for x in _LOCAL_RE.finditer(body)]
         funcs[name] = {
             "range": [m.start(), end],
+            # 2026-11-04：`range` 是**字符偏移**，与行号混用会误判；补 1-based 行号区间
+            # 供 inventory.py 做函数归属（此前只能靠"字符位置当行号"猜）。
+            "line_range": [source.count("\n", 0, m.start()) + 1,
+                           source.count("\n", 0, end) + 1],
             "locals": locals_decl,
             "calls": _calls_in(body),
             "body": body,
@@ -129,6 +135,10 @@ def side_effects(source: str) -> List[Dict[str, str]]:
     """
     hits = []
     for i, line in enumerate(source.splitlines(), 1):
+        # 2026-11-04：注释行不是可执行副作用。此前 `# ... > out.txt` 被误报为
+        # `file redirect write`（gatekeeper-cli.sh 实测首 3 条全是注释）。
+        if line.lstrip().startswith("#"):
+            continue
         for pat, label in _SIDE_EFFECT_PATTERNS:
             if not re.search(pat, line):
                 continue
@@ -167,4 +177,7 @@ def analyze(source: str) -> Dict[str, object]:
         "local_captures": detect_local_capture(funcs),
         "side_effects": side_effects(source),
         "boundary_recommendations": migration_boundary(funcs),
+        # 2026-11-04：内联 python 载荷清单（可排序/可按函数归属/带体量），
+        # 与 audit --bomb 的行级告警互补：前者用于**拆解排序**，后者用于**收尾巡检**。
+        "inline_inventory": scan_inline(source, funcs),
     }

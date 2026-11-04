@@ -248,6 +248,10 @@ def bomb_scan(source: str) -> Dict[str, object]:
     """
     groups: Dict[str, List[Dict[str, object]]] = {}
     for i, line in enumerate(source.splitlines(), 1):
+        # 2026-11-04：注释行不是可执行炸弹。此前 `# 病象：… python3 -c "…"` 这类
+        # 说明文字被计成 inline_python（gatekeeper-cli.sh 实测至少 1 条假阳性）。
+        if line.lstrip().startswith("#"):
+            continue
         for kind, pat, sev, risk, fix in _BOMB_PATTERNS:
             if re.search(pat, line):
                 groups.setdefault(kind, []).append({
@@ -273,6 +277,12 @@ _SC_SINGLE_RULES = [
     ("sc2181_test_dollar", r"\[[^]]*\$\?[^]]*\]",
      "LOW", "SC2181 — 用 $? 反模式测试命令结果（掩盖真实退出码来源，易受中间命令干扰）",
      "直接 if cmd; then 判断，或 command || handle_failure；勿写 if [ $? -ne 0 ]"),
+    # 2026-11-04（v0.3.1）：自 shellcheck 移植 —— 声明与赋值同行会吞掉命令替换的退出码，
+    # 迁移到 Python 后同样会掩盖失败（subprocess 返回值被丢弃）。
+    ("sc2155_local_assign",
+     r"^\s*(?:local|declare|readonly|export)\s+[A-Za-z_][A-Za-z0-9_]*=\s*[\"']?\$\((?!\()",
+     "MEDIUM", "SC2155 — 声明与赋值同行，命令替换的退出码被吞（失败静默）",
+     "拆成两行：local x; x=\"$(cmd)\"（或 x=$(cmd) || return 1），保留退出码可判定"),
 ]
 
 # sc2034 豁免：全大写/下划线开头 = 常量/契约；META_ 前缀 = 文档契约（死代码教训 R5.5：
@@ -352,9 +362,19 @@ def _sc2086_unquoted_issues(lines: List[str]) -> List[Dict[str, object]]:
     return issues
 
 
+_SC_REF_RE = re.compile(
+    r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)"
+    r"|\b([A-Za-z_][A-Za-z0-9_]*)\s*=")
+
+
 def _sc2034_unused_issues(lines: List[str]) -> List[Dict[str, object]]:
     """SC2034 — 未使用变量（保守版）。只报小写/驼峰赋值名且过滤后行内引用 ≤ 定义次数。
-    全大写常量/export/readonly 豁免（外部契约）。"""
+    全大写常量/export/readonly 豁免（外部契约）。
+
+    2026-11-04 性能修复：原实现对**每个**定义名各编译一条正则并全文 `findall`
+    ⟹ O(定义数 × 全文)；gatekeeper-cli.sh（709 KB / 12,676 行）实测 **55.7 s**。
+    改为**单遍**合并正则计数（语义等价：`${v}` / `$v` / `v =`），实测降到毫秒级。
+    """
     text = "\n".join(lines)
     defs = []  # [(line_no, name)]
     for i, line in enumerate(lines, 1):
@@ -370,15 +390,161 @@ def _sc2034_unused_issues(lines: List[str]) -> List[Dict[str, object]]:
         if "export" in s or "readonly" in s:
             continue
         defs.append((i, name))
+    if not defs:
+        return []
+    refs: Dict[str, int] = {}
+    for m in _SC_REF_RE.finditer(text):
+        nm = m.group(1) or m.group(2) or m.group(3)
+        refs[nm] = refs.get(nm, 0) + 1
+    def_count: Dict[str, int] = {}
+    for _, n in defs:
+        def_count[n] = def_count.get(n, 0) + 1
     issues = []
     for i, name in defs:
-        pat = re.compile(r"\$\{" + re.escape(name) + r"\}|\$" + re.escape(name)
-                         + r"\b|\b" + re.escape(name) + r"\s*=")
-        refs = len(pat.findall(text))
-        if refs <= sum(1 for _, n in defs if n == name):
+        if refs.get(name, 0) <= def_count[name]:
             issues.append({"line": i, "var": name, "text": lines[i - 1].strip()[:120],
                            "fix": "删除该变量，或显式声明其为输出契约（如 export/返回值使用）"})
     return issues
+
+
+def _skip_balanced(line: str, j: int, n: int) -> int:
+    """j 指向 `$(` / `$((`；返回匹配括号之后的下标（内层引号状态独立，不影响外层）。"""
+    if j + 2 < n and line[j + 2] == "(":
+        depth, k, close = 1, j + 3, "))"
+        while k < n:
+            if line[k] == "(":
+                depth += 1
+            elif line[k] == ")":
+                depth -= 1
+                if depth == 0:
+                    return k + 1
+            k += 1
+        return n
+    depth, k, s, d = 1, j + 2, False, False
+    while k < n:
+        c = line[k]
+        if s:
+            if c == "'":
+                s = False
+        elif d:
+            if c == '"':
+                d = False
+            elif c == "\\":
+                k += 1
+        else:
+            if c == "'":
+                s = True
+            elif c == '"':
+                d = True
+            elif c == "(":
+                depth += 1
+            elif c == ")":
+                depth -= 1
+                if depth == 0:
+                    return k + 1
+        k += 1
+    return n
+
+
+def _sc2046_unquoted_subst(lines: List[str]) -> List[Dict[str, object]]:
+    """SC2046 — 未加引号的命令替换（词分割 / 通配展开意外，2026-11-04 移植）。
+
+    保守口径，排除四类**非缺陷**（shellcheck 亦不报）：
+      ① 赋值语境 `x=$(cmd)` / `local x=$(cmd)`（bash 赋值不做词分割，SC2155 才管）；
+      ② 引号内（含 `"$(cd "$(dirname …)" && pwd)"` 这类嵌套 —— 内层引号状态独立）；
+      ③ 算术展开 `$(( … ))`（不做词分割）；
+      ④ `[[ … ]]` / `(( … ))` 行（模式/算术上下文，引号语义不同）。
+    """
+    issues: List[Dict[str, object]] = []
+    for i, line in enumerate(lines, 1):
+        s = line.strip()
+        if not s or s.startswith("#") or s.startswith("[[") or s.startswith("(("):
+            continue
+        sq = dq = False
+        j, n = 0, len(line)
+        while j < n:
+            c = line[j]
+            if c == "\\" and not sq:
+                j += 2
+                continue
+            if c == "'" and not dq:
+                sq = not sq
+                j += 1
+                continue
+            if c == '"' and not sq:
+                dq = not dq
+                j += 1
+                continue
+            if c == "$" and j + 1 < n and line[j + 1] == "(" and not sq:
+                nxt = _skip_balanced(line, j, n)
+                if not dq and not (j + 2 < n and line[j + 2] == "("):
+                    k = j - 1
+                    while k >= 0 and line[k] in " \t":
+                        k -= 1
+                    if not (k >= 0 and line[k] == "="):
+                        issues.append({
+                            "line": i, "text": s[:120],
+                            "fix": "加双引号：\"$(cmd)\"（确需分词时用数组或显式 IFS）"})
+                        break
+                j = nxt
+                continue
+            j += 1
+    return issues
+
+
+def _scoped_walk(node):
+    """遍历单个作用域（**不**下钻嵌套 def/lambda/class）——F841 只在定义它的作用域内判。"""
+    stack = [node]
+    while stack:
+        cur = stack.pop()
+        yield cur
+        for ch in ast.iter_child_nodes(cur):
+            if isinstance(ch, (ast.FunctionDef, ast.AsyncFunctionDef,
+                               ast.Lambda, ast.ClassDef)):
+                continue
+            stack.append(ch)
+
+
+def python_lint(source: str) -> Dict[str, object]:
+    """Python 侧 lint 子集（2026-11-04 自 ruff 移植：E722 裸 except / F841 未使用局部变量）。
+
+    只做**确定性 AST** 判定，不做数据流分析；`_` 前缀、参数、global/nonlocal 一律豁免。
+    """
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return {"error": "python syntax error — cannot lint"}
+    bare = [{"line": n.lineno, "fix": "改用 except Exception: 或具体异常类型"}
+            for n in ast.walk(tree)
+            if isinstance(n, ast.ExceptHandler) and n.type is None]
+    # 全模块读集合（**含嵌套作用域**）：闭包/后续函数引用同一名字时不算未使用
+    # —— 否则「外层赋值、内层函数读取」会被误报（2026-11-04 实测 221 条假阳性主因）。
+    loads = {n.id for n in ast.walk(tree)
+             if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)}
+    aug = {n.target.id for n in ast.walk(tree)
+           if isinstance(n, ast.AugAssign) and isinstance(n.target, ast.Name)}
+    unused: List[Dict[str, object]] = []
+    for fn in ast.walk(tree):
+        if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        params = {a.arg for a in list(fn.args.args) + list(fn.args.kwonlyargs)
+                  + list(fn.args.posonlyargs)}
+        glob = set()
+        stores: Dict[str, int] = {}
+        for node in _scoped_walk(fn):
+            if isinstance(node, ast.Global):
+                glob.update(node.names)
+            elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+                stores.setdefault(node.id, node.lineno)
+        for name, ln in sorted(stores.items(), key=lambda kv: kv[1]):
+            if (name in loads or name in params or name in glob or name in aug
+                    or name.startswith("_")):
+                continue
+            unused.append({"name": name, "line": ln, "func": fn.name,
+                           "fix": "删除该赋值，或改用下划线前缀声明有意忽略"})
+    counts = {"e722": len(bare), "f841": len(unused)}
+    return {"e722_bare_except": bare, "f841_unused_local": unused,
+            "counts": counts, "total": sum(counts.values())}
 
 
 def _python_inline_skip(lines: List[str]) -> set:
@@ -432,7 +598,29 @@ def _python_inline_skip(lines: List[str]) -> set:
     return skip
 
 
-def shellcheck_scan(source: str) -> Dict[str, object]:
+_HEREDOC_HDR_RE = re.compile(r"<<-?\s*'?([A-Za-z_][A-Za-z0-9_]*)'?")
+
+
+def _heredoc_skip(lines: List[str]) -> set:
+    """所有 heredoc **内容**行（数据，不是代码）。shell 语法规则不得扫内容——
+    2026-11-04 实测：`cat <<'EOF'` 里的 markdown `$(date -Iseconds)` 被 SC2046 误报。"""
+    skip = set()
+    tag = ""
+    for i, line in enumerate(lines, 1):
+        if tag:
+            skip.add(i)
+            if line.strip() == tag:
+                tag = ""
+            continue
+        if line.lstrip().startswith("#"):
+            continue
+        m = _HEREDOC_HDR_RE.search(line)
+        if m:
+            tag = m.group(1)
+    return skip
+
+
+def shellcheck_scan(source: str, strict: bool = False) -> Dict[str, object]:
     """shellcheck TOP 规则原生移植（检测 → 分级 → fix 三件套）。
 
     输出按 kind 分组的行级清单 + 计数，供 dead_code_gate1 / l5_blind_spot
@@ -440,7 +628,7 @@ def shellcheck_scan(source: str) -> Dict[str, object]:
     python 内联/heredoc 内容跳过（归 bomb_scan.inline_python 管，shellcheck 语义不扫）。
     """
     lines = source.splitlines()
-    skip = _python_inline_skip(lines)
+    skip = _python_inline_skip(lines) | _heredoc_skip(lines)
     filtered = [ln for k, ln in enumerate(lines, 1) if k not in skip]
     groups: Dict[str, List[Dict[str, object]]] = {}
     for i, line in enumerate(lines, 1):
@@ -459,6 +647,14 @@ def shellcheck_scan(source: str) -> Dict[str, object]:
         groups.setdefault("sc2034_unused", []).append(
             {"severity": "LOW", "risk": "SC2034 — 未使用变量（潜在绕过面/死代码）", **item,
              "line": _offset_line(skip, item["line"])})
+    # SC2046 仅在 `--strict` 下启用：本仓实测 4 命中里 3 条是刻意的 `for x in $(...)`
+    # （shellcheck 同样会报，但属分级建议而非缺陷）⟹ 默认集不收，避免噪声淹没真问题。
+    if strict:
+        for item in _sc2046_unquoted_subst(filtered):
+            groups.setdefault("sc2046_unquoted_subst", []).append(
+                {"severity": "LOW",
+                 "risk": "SC2046 — 未加引号的命令替换 → 词分割/通配符展开意外",
+                 **item, "line": _offset_line(skip, item["line"])})
     counts = {k: len(v) for k, v in groups.items()}
     return {"counts": counts, "total": sum(counts.values()), "groups": groups}
 

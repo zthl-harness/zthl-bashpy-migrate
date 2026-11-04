@@ -69,10 +69,17 @@ def _cmd_audit(args) -> int:
         report["write_guard"] = write_guard_check(src, fns)
     if args.bomb:
         report["bomb_scan"] = bomb_scan(src)
+        # 行级告警 + 可排序载荷清单（2026-11-04）：前者巡检，后者决定先拆哪块
+        from .inventory import scan_inline
+        report["inline_inventory"] = scan_inline(src)
     if args.shellcheck:
-        report["shellcheck_scan"] = shellcheck_scan(src)
+        report["shellcheck_scan"] = shellcheck_scan(src, strict=args.strict)
     if args.py_deadcode:
         report["python_module_deadcode"] = python_module_deadcode(src)
+    if args.py_lint:
+        # 2026-11-04：ruff 子集（E722 裸 except / F841 未使用局部变量）
+        from .audit import python_lint
+        report["python_lint"] = python_lint(src)
     if args.explain and report:
         items: List[dict] = []
         for sec in report.values():
@@ -127,9 +134,13 @@ def build_parser() -> argparse.ArgumentParser:
     au.add_argument("--bomb", action="store_true",
                     help="炸弹标记扫描（python3 内联 / stderr 吞错 / 危险命令）")
     au.add_argument("--shellcheck", action="store_true",
-                    help="shellcheck TOP 子集扫描（sc2086/sc2164/sc2181/sc2034，零依赖确定性移植）")
+                    help="shellcheck TOP 子集扫描（sc2086/sc2164/sc2181/sc2034/sc2155，零依赖确定性移植）")
+    au.add_argument("--strict", action="store_true",
+                    help="启用分级建议规则（当前：SC2046 未引号命令替换；实测多为刻意的 for 分词）")
     au.add_argument("--py-deadcode", action="store_true",
                     help="Python 模块级死代码扫描（AST 未使用 import/函数）")
+    au.add_argument("--py-lint", action="store_true",
+                    help="Python lint 子集（ruff 移植：E722 裸 except / F841 未使用局部变量）")
     au.add_argument("--explain", action="store_true", help="LLM 解释（可选）")
     au.add_argument("--api-key", default=None, help="LLM API key（缺省降级人工审查）")
     au.set_defaults(func=_cmd_audit)

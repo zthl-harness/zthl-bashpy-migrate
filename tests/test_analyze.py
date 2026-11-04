@@ -63,5 +63,5 @@ def test_migration_boundary(bash_source):
 def test_analyze_report_shape(bash_source):
     report = analyze(bash_source)
     assert set(report) == {"functions", "local_captures", "side_effects",
-                           "boundary_recommendations"}
+                           "boundary_recommendations", "inline_inventory"}
     assert len(report["functions"]) == 4

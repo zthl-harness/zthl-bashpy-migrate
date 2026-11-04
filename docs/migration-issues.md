@@ -1,4 +1,4 @@
-# bash → Python 迁移问题分类学（6 大域 25 类）
+# bash → Python 迁移问题分类学（6 大域 25 类 + J 域增补 3 类）
 
 **Migration Issue Taxonomy: 25 categories of bash → Python migration problems in 6 domains.**
 
@@ -171,6 +171,37 @@
 
 ---
 
+## J. 检测器自身的问题（2026-11-04 增补，v0.3.0 / v0.3.1 实测）
+
+> 前三域讲「被迁移代码的问题」，本域讲「检测器自己的问题」——工具会骗人，是被 gatekeeper
+> 实测（gatekeeper-cli.sh，709 KB / 12,676 行）打出来的三类。
+
+**26. 只有告警没有清单 / Alerts without inventory**
+
+- **现象**: `audit --bomb` 只给行级 `inline_python` 计数（92 条），无法回答「先拆哪一块」；
+  同名载荷重复出现也不合并，代码搬家后无法对比前后。
+- **根因**: 告警粒度 = 行，拆解决策需要的粒度 = 载荷（体量 / 归属 / 身份）。
+- **解法**: `inventory.py::scan_inline()`——四分类（comment / wrapper / import_probe / payload）+
+  `size` / `func` / `sha`（sha 不含行号，代码搬家不算新增）。
+
+**27. 把非代码文本当代码 / Non-code counted as code**
+
+- **现象**: 三处系统性命中率失真——① 注释 `# 病象：… python3 -c "…"` 被计为内联载荷；
+  ② `cat <<'EOF'` 里的 markdown `$(date -Iseconds)` 被 SC2046 报；③ `local x=$(( a * b ))`
+  被 SC2155 报（算术不是命令替换）。实测：`side_effects` 首 3 条全是注释；
+  SC2155 一度 247 条、SC2046 4 条中 3 条是刻意的 `for x in $(...)`。
+- **根因**: 正则按行匹配，未先做「语义分区」（注释 / heredoc 正文 / 算术上下文）。
+- **解法**: 统一先算跳过集（注释行 + 全部 heredoc 正文 + python 内联区间），再做规则匹配；
+  无法判别意图的规则（SC2046）降级到 `--strict`。
+
+**28. 检测器自身的复杂度 / Quadratic scanners**
+
+- **现象**: `audit` 在同一份 709 KB 文件上耗时 **56.6 s**，其中 `shellcheck_scan` 占 51.7 s。
+- **根因**: SC2034 对**每个**变量名各编译一条正则并全文 `findall` ⟹ O(定义数 × 全文)；
+  同名判定又用 `sum(...)` 二次遍历 ⟹ 再乘一层。
+- **解法**: 单遍合并正则计数 + 字典统计定义次数（51.7 s → 0.27 s）；函数区间补 `line_range`
+  （原 `range` 是字符偏移，容易被下游当行号用）。
+
 ## 工具映射 — Tool Mapping
 
 | 域 | 类别 | 对应工具能力 |
@@ -194,6 +225,43 @@
 | `python_module_deadcode` | Python 模块级未使用 import/函数（AST，零依赖） | #25 死代码三关的 Python 侧扩展 | vulture / pyflakes |
 | `dead_code` | bash 函数可达性三关 | #25 | gitnexus / rg |
 | `write_guard_check` | 写入函数无 dry_run 守卫（AST 扫 `*_write*`） | #6 / #23 | — |
+
+---
+
+## G. 红队打击点映射（RED-*，与技能侧分类学合并 2026-08-27）
+
+> 分类学统计的所有问题全部是红队打击点：每类问题映射到确定性红队引擎 `_red_attacks.py` 的 finding，
+> 闭环到 ECC-FINDING（source=red）。映射来源 = 技能仓库 `references/bashpy-problem-taxonomy.md`（合并后本文件为主）。
+
+| 域/类别 | 红队打击点 | 严重度 | 检测手段（统一入口） |
+|:--|:--|:--|:--|
+| F#22-25 / 迁移炸弹（inline/stderr/fd/danger） | RED-MIGRATE-INLINE / SWALLOW / FD / DANGER | high/medium/low/high | `migrate audit --script <cli> --bomb` |
+| 语义等价（D 域契约白名单） | RED-VERIFY-*（契约改进白名单） | medium | `migrate verify --baseline` |
+| 加载安全网（F 域 checksum） | RED-MIGRATE-LOAD（漏加载/误加载/错误加载） | medium | `gk_bashpy_loader.load_status` |
+| 生命周期（cap 白名单外子命令 / write 插件无 undo） | manifest 门禁拦截 | high | `gk_plugin_manifest.check_capability` |
+| hook 门禁（裸调用绕过统一入口） | RED-HOOK-10..15 | high | `pre_tool_hook._plugin_bare_call` |
+
+## H. 统计口径与实测基线（2026-08-27）
+
+| 打击点 | 计数 | 说明 |
+|:--|:--|:--|
+| RED-MIGRATE-INLINE | 174 | inline python3（batch8 迁移中 224→174） |
+| RED-MIGRATE-SWALLOW | 435 | stderr 吞错（2>/dev/null） |
+| RED-MIGRATE-DANGER | 2 | rm -rf 家族 / git push --force |
+| RED-MIGRATE-FD | 56 | fd redirect（2>&1/>&2） |
+
+> 计数更新方式：`gatekeeper-cli.sh migrate audit --script <cli> --bomb`（统一入口，非裸调用）。
+> 计数漂移（如 174→N）→ 循环 A 触发分类学统计更新（ECO-DOC 阶段任务）。
+
+## I. 双循环维护职责（循环 A 生命周期 / 循环 B 任务执行）
+
+| 循环 | 引擎 | 维护任务（**仅限分类学文档更新，禁止触碰循环逻辑**） |
+|:--|:--|:--|
+| **A 生命周期维护** | standing（ECO-SCAN→…→ECO-DOC） | 发版/新插件接入/安全事件后：§类别表加行 + §H 计数更新 + 新问题类别登记 |
+| **B 任务执行** | standard（cmd_migrate） | 迁移任务：verify 契约改进白名单（path 匹配）写入对应类别；audit --bomb 计数漂移上报循环 A |
+
+> 技能仓库侧存指针 + 运营副本：`references/bashpy-problem-taxonomy.md`（统计口径/双循环维护/检查清单），
+> 本文件（6 大域 25 类）为**唯一权威源**。双文档同步 = 循环 A/B 维护任务。
 
 *本文件为开发知识沉淀，与工具功能一一对应。*
 
