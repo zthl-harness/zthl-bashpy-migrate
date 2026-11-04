@@ -9,6 +9,7 @@
 ③ 确定性（同输入逐字相同、排序固定）；④ 只读消费 audit 报告，不改既有 JSON 契约。
 """
 import json
+import os
 
 from zthl_bashpy_migrate.cli import main
 from zthl_bashpy_migrate.sarif import SCHEMA, VERSION, to_sarif
@@ -185,8 +186,11 @@ class TestCli:
         rules = set(_rules(doc))
         assert {"inline_python", "sc2155_local_assign", "sc2164_cd_fail"} <= rules
         assert all(r["ruleId"] in rules for r in _results(doc))
-        # artifact 是 file URI，且行号指向原文件
-        assert doc["runs"][0]["properties"]["artifact"].startswith("file:///")
+        # artifact 是 URI 形态（Windows → file:///C:/…；POSIX → 原样绝对路径），行号指向原文件
+        artifact = doc["runs"][0]["properties"]["artifact"]
+        assert artifact.endswith("/x.sh"), artifact
+        if os.name == "nt":
+            assert artifact.startswith("file:///"), artifact
         assert any(r["locations"][0]["physicalLocation"].get("region", {}).get("startLine") == 2
                    for r in _results(doc))
 
