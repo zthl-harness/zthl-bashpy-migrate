@@ -52,6 +52,7 @@ L3 audit（LLM 兜底可选）
     + 炸弹扫描：python3 内联 / stderr 吞错 / 危险命令 / 大小写敏感耦合
       （zizmor 模式：检测 → 分级 → 修复——每条 finding 带 severity + risk + fix）
     + shellcheck TOP 子集（SC2086/SC2164/SC2181/SC2034 确定性移植——零外部依赖）
+    + SARIF 2.1.0 输出（`--format sarif`——GitHub code scanning / GitLab SAST / VS Code）
     + 未覆盖隐式语义点 → LLM 解释（无 key 时降级输出"待人工审查"清单）
 ```
 
@@ -77,7 +78,18 @@ bashpy-migrate verify --baseline baseline.json --output result.json
 
 # 4) 迁移后：死代码 + 写入守卫审计
 bashpy-migrate audit --script gatekeeper-cli.sh --entry main --write-fns "_state_write,_write_state"
+
+# 5) 接 CI 代码扫描（SARIF 2.1.0：GitHub / GitLab / VS Code）
+bashpy-migrate audit --script gatekeeper-cli.sh --bomb --shellcheck --py-lint --format sarif > bashpy.sarif
 ```
+
+### SARIF 输出
+
+`audit --format sarif` 输出 SARIF 2.1.0，可被 GitHub code scanning、GitLab SAST 与
+VS Code SARIF Viewer 直接消费。映射固定且**确定**（无时间戳）：`CRITICAL/HIGH → error`、
+`MEDIUM → warning`、`LOW/未标注 → note`；每条结果带 `artifactLocation + region（行/列）`，
+规则 `help.text` 存修法。函数级 finding 省略 `region`，不伪造行号。
+`inline_inventory` 是证据清单不是缺陷，不转 results。
 
 ## DSH 集成（npm bundle）
 
@@ -105,7 +117,9 @@ CI `npm-supply-chain` job 自动校验 pack 内容（声明文件 + README）与
 
 模型自动调用工具并返回结构化报告（每条 finding 带 severity + risk + fix）。
 
-版本同步约定：`pyproject.toml` / `__init__.py` / npm `package.json` 三处版本必须一致。
+版本同步约定：`pyproject.toml` / `__init__.py` 两处保持一致；DSH npm 包装器
+（`npm/dsh-bashpy-migrate/package.json`）有独立版本，其适配层变更时由
+`scripts/npm-bundle.sh` 重建。
 
 ## 迁移问题分类学
 

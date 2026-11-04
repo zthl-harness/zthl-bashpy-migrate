@@ -35,6 +35,10 @@
 4. **供应链与可移植性**——外部 linter（shellcheck/ruff）会引入二进制依赖与安装面；
    插件的核心规则全部原生实现（正则/AST），发布包经 SHA256 pin 校验，无运行时外部依赖。
 
+5. **标准出口（SARIF 2.1.0）**——zizmor 的生态优势之一是直接产出 SARIF；插件同样提供
+   `audit --format sarif`（确定性、无时间戳、固定排序），可直接接 GitHub code scanning /
+   GitLab SAST / VS Code SARIF Viewer。shellcheck/ruff 的原生输出需额外转换器才能进同一入口。
+
 ## 3. 边界（明确不做）
 
 - 不做代码生成（LLM 负责），只验证。

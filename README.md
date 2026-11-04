@@ -58,6 +58,7 @@ L3 audit (LLM fallback optional)
     + bomb scan: inline-python / stderr-swallow / dangerous-command / case-sensitive coupling
       (zizmor-style: detect → grade → fix — every finding carries severity + risk + fix recipe)
     + shellcheck TOP subset (SC2086/SC2164/SC2181/SC2034 deterministic port — zero external dependency)
+    + SARIF 2.1.0 output (`--format sarif` — GitHub code scanning / GitLab SAST / VS Code)
     + uncovered implicit-semantics points → LLM explanation (degraded to "needs manual review" list without key)
 ```
 
@@ -83,7 +84,19 @@ bashpy-migrate verify --baseline baseline.json --output result.json
 
 # 4) After migration: dead-code + write-guard audit
 bashpy-migrate audit --script gatekeeper-cli.sh --entry main --write-fns "_state_write,_write_state"
+
+# 5) Feed findings to CI code scanning (SARIF 2.1.0: GitHub / GitLab / VS Code)
+bashpy-migrate audit --script gatekeeper-cli.sh --bomb --shellcheck --py-lint --format sarif > bashpy.sarif
 ```
+
+### SARIF output
+
+`audit --format sarif` emits SARIF 2.1.0, consumable by GitHub code scanning, GitLab SAST
+and the VS Code SARIF Viewer. The mapping is fixed and **deterministic** (no timestamps):
+`CRITICAL/HIGH → error`, `MEDIUM → warning`, `LOW/unlabelled → note`; every result carries
+`artifactLocation + region (line/column)` and the rule's `help.text` holds the fix recipe.
+Function-level findings omit `region` instead of inventing a line number.
+`inline_inventory` is evidence, not a finding, so it is not emitted as a result.
 
 ## DSH Integration (npm bundle)
 
@@ -113,7 +126,9 @@ CI job validates the pack contents (declared files + README) and runs the node a
 
 The model invokes the tool and gets a structured report (every finding carries severity + risk + fix).
 
-Version-sync convention: `pyproject.toml` / `__init__.py` / npm `package.json` must stay in lockstep.
+Version-sync convention: `pyproject.toml` / `__init__.py` stay in lockstep. The DSH npm wrapper
+(`npm/dsh-bashpy-migrate/package.json`) has its own version and is rebuilt via
+`scripts/npm-bundle.sh` when its adapter changes.
 
 ## Migration Issue Taxonomy
 

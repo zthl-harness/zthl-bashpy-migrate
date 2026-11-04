@@ -89,6 +89,11 @@ def _cmd_audit(args) -> int:
             for group in (sec.get("groups") or {}).values():
                 items.extend(group)
         report["llm"] = llm_explain(items, args.api_key)
+    if args.format == "sarif":
+        # SARIF 2.1.0（2026-11-04）：GitHub code scanning / GitLab SAST / SARIF Viewer 通用
+        from .sarif import to_sarif
+        _emit(to_sarif(report, args.script, __version__))
+        return 0
     _emit(report)
     return 0
 
@@ -143,6 +148,8 @@ def build_parser() -> argparse.ArgumentParser:
                     help="Python lint 子集（ruff 移植：E722 裸 except / F841 未使用局部变量）")
     au.add_argument("--explain", action="store_true", help="LLM 解释（可选）")
     au.add_argument("--api-key", default=None, help="LLM API key（缺省降级人工审查）")
+    au.add_argument("--format", choices=("json", "sarif"), default="json",
+                    help="输出格式：json（默认）/ sarif（SARIF 2.1.0，供 CI 代码扫描平台消费）")
     au.set_defaults(func=_cmd_audit)
     return p
 

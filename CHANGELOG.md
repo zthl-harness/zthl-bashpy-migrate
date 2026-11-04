@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.3.2 (2026-11-04)
+
+### 新增：SARIF 2.1.0 输出
+
+- `audit --format sarif`：把 bomb / shellcheck / py-lint / write-guard / 死代码结果转成
+  SARIF 2.1.0（GitHub code scanning / GitLab SAST / VS Code SARIF Viewer 通用）。
+- **确定性**：无时间戳，rules 按 ruleId、results 按 (line, column, ruleId, message) 排序；
+  同输入逐字相同输出，可直接进棘轮基线。
+- **分级映射**：CRITICAL/HIGH → error，MEDIUM → warning，LOW/未标注 → note；
+  函数级 finding 省略 region（不伪造行号）；`inline_inventory` 是证据清单，不进 results。
+- 既有 `--format json`（默认）输出逐字不变（加性变更）。
+
 ## v0.3.1 (2026-11-04)
 
 规则集扩展：从 shellcheck / ruff 各移植两条，并按「误报为 0 才进默认集」逐条校准。

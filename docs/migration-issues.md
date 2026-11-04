@@ -226,6 +226,12 @@
 | `dead_code` | bash 函数可达性三关 | #25 | gitnexus / rg |
 | `write_guard_check` | 写入函数无 dry_run 守卫（AST 扫 `*_write*`） | #6 / #23 | — |
 
+**统一出口（2026-11-04）**：`audit --format sarif` 把上述检测器结果转成 SARIF 2.1.0
+（`sarif.py`），可接 GitHub code scanning / GitLab SAST / VS Code SARIF Viewer。分级映射
+`HIGH/CRITICAL → error`、`MEDIUM → warning`、`LOW/未标注 → note`；函数级 finding 省略
+`region`（不伪造行号）；`inline_inventory` 是证据清单，不转 results。输出无时间戳、排序固定
+（rules 按 ruleId，results 按 line/column/ruleId/message）⟹ 可直接做棘轮基线对比。
+
 ---
 
 ## G. 红队打击点映射（RED-*，与技能侧分类学合并 2026-08-27）
