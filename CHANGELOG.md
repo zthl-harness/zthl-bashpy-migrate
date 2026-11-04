@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.3.3 (2026-11-04)
+
+### 新增：分诊模型（advisory only）
+
+- `triage.py` + `audit --triage`：把确定性审计的疑点清单交给模型做**排序建议**
+  （`FIX` / `REVIEW` / `IGNORE`），只影响「先看哪条」，**不影响任何判定与 exit code**。
+- 四道边界：① 不改判（返回 `advisory_only: true`）；② schema 强校验（`verdict` /
+  `confidence` / `reason` / `index` 任一不合规即丢弃，不做修补）；③ 预算（`max_items` /
+  `max_tokens` / `timeout_s` / 重试 1 次）；④ 失败降级（无 key / 网络失败 / 非 JSON /
+  全丢光 ⟹ 原顺序清单，永不抛异常）。
+- 可复现与省钱：`temperature=0` + `PROMPT_VERSION` + 模型名三者进缓存键，命中缓存不重复
+  计费（`BASHPY_TRIAGE_CACHE=0` 关闭，`BASHPY_TRIAGE_CACHE_DIR` 改路径）。
+- 确定性面零改动：不带 `--triage` 时 `audit` 输出与退出码逐字不变。
+
 ## v0.3.2 (2026-11-04)
 
 ### 新增：SARIF 2.1.0 输出

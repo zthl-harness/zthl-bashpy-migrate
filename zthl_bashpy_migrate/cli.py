@@ -19,6 +19,7 @@ from . import __version__
 from .analyze import analyze as l1_analyze
 from .audit import (bomb_scan, dead_code, llm_explain, python_module_deadcode,
                     shellcheck_scan, write_guard_check)
+from .triage import triage as run_triage
 from .verify import (capture_baseline, dry_run_check, loads_json, verify)
 
 
@@ -80,15 +81,13 @@ def _cmd_audit(args) -> int:
         # 2026-11-04：ruff 子集（E722 裸 except / F841 未使用局部变量）
         from .audit import python_lint
         report["python_lint"] = python_lint(src)
-    if args.explain and report:
-        items: List[dict] = []
-        for sec in report.values():
-            if not isinstance(sec, dict):
-                continue
-            items.extend(sec.get("candidates", sec.get("issues", [])))
-            for group in (sec.get("groups") or {}).values():
-                items.extend(group)
-        report["llm"] = llm_explain(items, args.api_key)
+    if args.explain or args.triage:
+        items = _collect_items(report)
+        if args.explain:
+            report["llm"] = llm_explain(items, args.api_key)
+        if args.triage:
+            # 分诊模型（advisory）：只影响排序/分组，**不改判定、不改 exit code**
+            report["triage"] = run_triage(items, args.api_key)
     if args.format == "sarif":
         # SARIF 2.1.0（2026-11-04）：GitHub code scanning / GitLab SAST / SARIF Viewer 通用
         from .sarif import to_sarif
@@ -102,6 +101,18 @@ def _split_cmd(cmd: str) -> List[str]:
     """Split a shell-ish command string into argv (shlex, no shell=True)."""
     import shlex
     return shlex.split(cmd)
+
+
+def _collect_items(report: dict) -> List[dict]:
+    """从各检测段收集疑点（candidates / issues / groups 展平）—— explain 与 triage 共用。"""
+    items: List[dict] = []
+    for sec in report.values():
+        if not isinstance(sec, dict):
+            continue
+        items.extend(sec.get("candidates", sec.get("issues", [])))
+        for group in (sec.get("groups") or {}).values():
+            items.extend(group)
+    return items
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -147,6 +158,8 @@ def build_parser() -> argparse.ArgumentParser:
     au.add_argument("--py-lint", action="store_true",
                     help="Python lint 子集（ruff 移植：E722 裸 except / F841 未使用局部变量）")
     au.add_argument("--explain", action="store_true", help="LLM 解释（可选）")
+    au.add_argument("--triage", action="store_true",
+                    help="分诊模型（advisory：只给排序/处置建议，不改判定与退出码）")
     au.add_argument("--api-key", default=None, help="LLM API key（缺省降级人工审查）")
     au.add_argument("--format", choices=("json", "sarif"), default="json",
                     help="输出格式：json（默认）/ sarif（SARIF 2.1.0，供 CI 代码扫描平台消费）")

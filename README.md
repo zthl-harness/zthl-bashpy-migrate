@@ -60,6 +60,8 @@ L3 audit (LLM fallback optional)
     + shellcheck TOP subset (SC2086/SC2164/SC2181/SC2034 deterministic port — zero external dependency)
     + SARIF 2.1.0 output (`--format sarif` — GitHub code scanning / GitLab SAST / VS Code)
     + uncovered implicit-semantics points → LLM explanation (degraded to "needs manual review" list without key)
+    + triage model (`--triage`, advisory only): suggests FIX/REVIEW/IGNORE ordering;
+      never changes a verdict or the exit code (schema-validated, budgeted, cached)
 ```
 
 ## Installation
@@ -157,6 +159,7 @@ Phase 7 acceptance style: "all transitions correct + 100% semantic equivalence")
 | L3 audit | Bomb scan + shellcheck TOP subset + case-sensitivity: deterministic findings, every one with severity+risk+fix (zizmor 模式) | `bomb_scan` / `shellcheck_scan` tests |
 | L3 audit | Python module-level deadcode: unused imports/functions via AST (zero-dep, no vulture/pyflakes) | `python_module_deadcode` test |
 | L3 audit | LLM fallback degraded mode (no key → "needs manual review" list) | `llm_explain` test |
+| L3 triage | advisory ordering never alters verdict / exit code | `tests/test_triage.py` |
 | Cross-layer | `pytest` ≥ 28 passed; CLI smoke on real bash sample (analyze + audit) 0 errors | `pytest tests -q` + CI quality job |
 | Cross-layer | Python 3.9-3.13 × ubuntu/windows matrix green | GitHub Actions `test` job |
 

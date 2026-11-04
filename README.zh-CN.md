@@ -54,6 +54,8 @@ L3 audit（LLM 兜底可选）
     + shellcheck TOP 子集（SC2086/SC2164/SC2181/SC2034 确定性移植——零外部依赖）
     + SARIF 2.1.0 输出（`--format sarif`——GitHub code scanning / GitLab SAST / VS Code）
     + 未覆盖隐式语义点 → LLM 解释（无 key 时降级输出"待人工审查"清单）
+    + 分诊模型（`--triage`，advisory only）：给出 FIX/REVIEW/IGNORE 的处置排序；
+      **不改任何判定、不改退出码**（schema 强校验 + 预算 + 缓存）
 ```
 
 ## 安装
@@ -146,6 +148,7 @@ L3 audit 确定性检测器（炸弹扫描 / shellcheck TOP 子集 / Python 模�
 | L3 audit | 炸弹扫描 + shellcheck TOP 子集 + 大小写敏感：确定性检出，每条 finding 带 severity+risk+fix（zizmor 模式） | `bomb_scan` / `shellcheck_scan` 测试 |
 | L3 audit | Python 模块级死代码：AST 未使用 import/函数（零依赖，无 vulture/pyflakes） | `python_module_deadcode` 测试 |
 | L3 audit | LLM 兜底降级：无 key → "待人工审查"清单模式 | `llm_explain` 测试 |
+| L3 分诊 | advisory 排序不改判定 / 不改退出码 | `tests/test_triage.py` |
 | 跨层 | pytest ≥28 通过；真实 bash 样本 CLI smoke（analyze + audit）0 错误 | `pytest tests -q` + CI quality job |
 | 跨层 | Python 3.9-3.13 × ubuntu/windows 矩阵全绿 | GitHub Actions `test` job |
 

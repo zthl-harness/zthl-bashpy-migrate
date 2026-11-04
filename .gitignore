@@ -16,3 +16,5 @@ npm/dsh-bashpy-migrate/npm-integrity.json
 .claude/
 AGENTS.md
 CLAUDE.md
+# gatekeeper 状态文件（工具运行时产物，含本机路径，绝不入库）
+.gatekeeper.state*
